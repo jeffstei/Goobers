@@ -14,12 +14,12 @@ word — read the page, not this table, before depending on it.
 
 | Status | Documents |
 |---|---:|
-| `draft` | 14 |
+| `draft` | 17 |
 | `approved` | 19 |
 | `implemented` | 27 |
 | `superseded` | 4 |
 | `historical` | 6 |
-| **Total** | **70** |
+| **Total** | **73** |
 
 ## `docs/adr/`
 
@@ -59,6 +59,9 @@ word — read the page, not this table, before depending on it.
 | [Goobernetes dispatcher — the pod-per-stage substrate (infra-facing design)](goobernetes-dispatcher.md) | `draft` | — | — | — | — | — | — |
 | [Goobernetes restrictions — the effect-based isolation model](goobernetes-restrictions.md) | `approved` | — | — | #3516, #3568, #4540 | — | — | — |
 | [Goobernetes smoke — the distributed-shape v1 exit](goobernetes-smoke.md) | `approved` | — | — | — | — | — | — |
+| [Goobers componentization analysis](goobers-componentization-analysis.md) | `draft` | — | — | — | — | — | — |
+| [Goobers componentization evidence](goobers-componentization-evidence.md) | `draft` | — | — | — | — | — | — |
+| [Goobers componentization inventory](goobers-componentization-inventory.md) | `draft` | — | — | — | — | — | — |
 | [Design: Human-in-the-Loop — escalation visibility & intervention](human-in-the-loop.md) | `implemented` | — | — | #3876, #3877, #3883 | — | — | 09db115bb (2026-09-06) |
 | [Kubernetes Infrastructure Shape — what Goobers needs from a customer-managed cluster](k8s-infra-shape.md) | `approved` | — | — | — | — | — | — |
 | [Large-repo execution model (#2063)](large-repo-execution-model.md) | `draft` | — | — | — | — | — | — |

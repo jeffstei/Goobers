@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goobers componentization analysis</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #071019;
+      --panel: #0d1b27;
+      --panel-2: #112536;
+      --ink: #edf7ff;
+      --muted: #9bb0c2;
+      --line: #29445a;
+      --accent: #59d7c3;
+      --accent-2: #8ca9ff;
+      --warn: #ffca69;
+      --bad: #ff808d;
+      --good: #7de2a1;
+      --shadow: 0 18px 60px rgba(0, 0, 0, .28);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 15% -5%, rgba(89, 215, 195, .16), transparent 34rem),
+        radial-gradient(circle at 100% 5%, rgba(140, 169, 255, .15), transparent 32rem),
+        var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+
+    a { color: var(--accent); }
+    button, input { font: inherit; }
+    code {
+      color: #c6f6ee;
+      background: rgba(89, 215, 195, .08);
+      border: 1px solid rgba(89, 215, 195, .18);
+      border-radius: .35rem;
+      padding: .08rem .3rem;
+    }
+
+    .shell {
+      width: min(1240px, calc(100% - 2rem));
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 4.5rem 0 2.5rem;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-weight: 750;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-size: .76rem;
+    }
+
+    h1 {
+      margin: .5rem 0 1rem;
+      max-width: 950px;
+      font-size: clamp(2.6rem, 7vw, 5.4rem);
+      line-height: .98;
+      letter-spacing: -.055em;
+    }
+
+    .lede {
+      max-width: 900px;
+      font-size: clamp(1.05rem, 2.2vw, 1.35rem);
+      color: #c4d5e2;
+    }
+
+    .hero-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .7rem;
+      margin-top: 1.5rem;
+    }
+
+    .hero-links a {
+      display: inline-block;
+      text-decoration: none;
+      border: 1px solid var(--line);
+      background: rgba(13, 27, 39, .75);
+      border-radius: 999px;
+      padding: .5rem .85rem;
+      color: var(--ink);
+    }
+
+    .decision {
+      margin: 1.5rem 0 3rem;
+      padding: 1.4rem;
+      border: 1px solid rgba(89, 215, 195, .4);
+      border-left: .4rem solid var(--accent);
+      border-radius: 1rem;
+      background: linear-gradient(135deg, rgba(89, 215, 195, .12), rgba(17, 37, 54, .9));
+      box-shadow: var(--shadow);
+    }
+
+    .decision strong { color: var(--accent); }
+
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 16, 25, .9);
+      backdrop-filter: blur(16px);
+    }
+
+    nav .shell {
+      display: flex;
+      gap: 1rem;
+      overflow-x: auto;
+      padding: .75rem 0;
+    }
+
+    nav a {
+      white-space: nowrap;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    nav a:hover { color: var(--ink); }
+
+    main { padding: 2rem 0 5rem; }
+    section { margin: 4rem 0; scroll-margin-top: 4rem; }
+    h2 {
+      margin: 0 0 .5rem;
+      font-size: clamp(1.8rem, 4vw, 2.7rem);
+      letter-spacing: -.035em;
+    }
+    h3 { margin-top: 1.5rem; }
+    .section-intro { color: var(--muted); max-width: 820px; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .metric, .card {
+      border: 1px solid var(--line);
+      background: linear-gradient(155deg, rgba(17, 37, 54, .95), rgba(13, 27, 39, .95));
+      border-radius: 1rem;
+      box-shadow: var(--shadow);
+    }
+
+    .metric { padding: 1.15rem; }
+    .metric .value {
+      display: block;
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -.04em;
+      color: var(--accent);
+    }
+    .metric .label { color: var(--muted); font-size: .9rem; }
+
+    .architecture {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.15fr);
+      gap: 1rem;
+      align-items: stretch;
+      margin: 2rem 0;
+    }
+
+    .arch-column {
+      display: grid;
+      gap: .75rem;
+    }
+
+    .node {
+      border: 1px solid var(--line);
+      border-radius: .8rem;
+      padding: .9rem;
+      background: var(--panel);
+    }
+
+    .node.core { border-color: rgba(89, 215, 195, .55); }
+    .node.component { border-color: rgba(140, 169, 255, .55); }
+    .arrow {
+      align-self: center;
+      color: var(--accent);
+      font-size: 2rem;
+      font-weight: 900;
+    }
+
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .55rem;
+      margin: 1.3rem 0;
+    }
+
+    .filter {
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: .4rem .8rem;
+      cursor: pointer;
+    }
+
+    .filter.active {
+      color: #061510;
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 750;
+    }
+
+    .options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+      gap: 1rem;
+    }
+
+    .card {
+      padding: 1.15rem;
+      transition: transform .16s ease, opacity .16s ease;
+    }
+    .card:hover { transform: translateY(-2px); }
+    .card.hidden { display: none; }
+    .card.recommended {
+      border-color: var(--accent);
+      box-shadow: 0 18px 60px rgba(89, 215, 195, .12);
+    }
+    .card h3 { margin: .1rem 0 .5rem; }
+    .score {
+      float: right;
+      color: var(--accent);
+      font-weight: 850;
+      font-size: 1.4rem;
+    }
+    .tags { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .8rem; }
+    .tag {
+      font-size: .75rem;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: .18rem .48rem;
+    }
+
+    .proscons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .7rem;
+      margin-top: .85rem;
+      font-size: .9rem;
+    }
+    .proscons div {
+      border-radius: .6rem;
+      padding: .65rem;
+      background: rgba(7, 16, 25, .45);
+    }
+    .pros strong { color: var(--good); }
+    .cons strong { color: var(--warn); }
+    ul { padding-left: 1.2rem; }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: .9rem;
+      margin-top: 1.2rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+      background: rgba(13, 27, 39, .82);
+    }
+    th, td {
+      text-align: left;
+      padding: .75rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    th { color: var(--accent); background: rgba(17, 37, 54, .9); }
+    tr:last-child td { border-bottom: 0; }
+
+    .timeline {
+      display: grid;
+      gap: .8rem;
+      margin-top: 1.5rem;
+      counter-reset: phase;
+    }
+    .phase {
+      counter-increment: phase;
+      display: grid;
+      grid-template-columns: 3rem 1fr;
+      gap: .85rem;
+      border: 1px solid var(--line);
+      border-radius: .9rem;
+      padding: .9rem;
+      background: var(--panel);
+    }
+    .phase::before {
+      content: counter(phase);
+      display: grid;
+      place-items: center;
+      width: 2.4rem;
+      height: 2.4rem;
+      border-radius: 50%;
+      color: #061510;
+      background: var(--accent);
+      font-weight: 900;
+    }
+    .phase h3 { margin: 0 0 .25rem; }
+    .phase p { margin: 0; color: var(--muted); }
+
+    .callout {
+      border: 1px solid var(--line);
+      border-left: .3rem solid var(--accent-2);
+      background: rgba(140, 169, 255, .08);
+      border-radius: .8rem;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+
+    footer {
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      padding: 2rem 0 3rem;
+    }
+
+    @media (max-width: 760px) {
+      header { padding-top: 3rem; }
+      .architecture { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); justify-self: center; }
+      .proscons { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      :root { color-scheme: light; --bg: #fff; --ink: #13202a; --muted: #465765; --panel: #fff; --panel-2: #f4f7f9; --line: #ccd6dd; }
+      body { background: #fff; }
+      nav, .filters { display: none; }
+      .metric, .card, .node, .phase { box-shadow: none; break-inside: avoid; }
+      a { color: #075c51; }
+    }
+  </style>
+</head>
+<body>
+  <header class="shell">
+    <div class="eyebrow">Goobers architecture decision package</div>
+    <h1>Smaller validation boundaries. Safe hot patches. One stable CLI.</h1>
+    <p class="lede">
+      The current Goobers executable is a 103 MiB statically linked product with a
+      highly concentrated command package. The recommended path is not DLLs or Go
+      plugins: decompose source and tests first, then add signed component sets and
+      private helper processes behind the unchanged <code>goobers</code> entry point.
+    </p>
+    <div class="hero-links">
+      <a href="goobers-componentization-analysis.md">Full recommendation</a>
+      <a href="goobers-componentization-inventory.md">Boundary inventory</a>
+      <a href="goobers-componentization-evidence.md">Measured evidence</a>
+    </div>
+    <div class="decision">
+      <strong>Decision:</strong> phased hybrid. Keep validation fallback, daemon,
+      engine, journal, update, and recovery in the core. Trial component activation
+      with Portal assets, then extract deterministic workflow-stage commands to a
+      private one-shot helper. Existing gaggles continue to invoke
+      <code>goobers &lt;command&gt;</code>.
+    </div>
+  </header>
+
+  <nav>
+    <div class="shell">
+      <a href="#evidence">Evidence</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#options">Options</a>
+      <a href="#resources">Resources</a>
+      <a href="#migration">Migration</a>
+      <a href="#guardrails">Guardrails</a>
+    </div>
+  </nav>
+
+  <main class="shell">
+    <section id="evidence">
+      <h2>The measured shape</h2>
+      <p class="section-intro">
+        The dominant issue is package and test concentration, not embedded file size.
+        Runtime splitting alone would not remove the existing CI long pole.
+      </p>
+      <div class="metrics">
+        <div class="metric"><span class="value">103.37</span><span class="label">MiB full stripped executable</span></div>
+        <div class="metric"><span class="value">1,174</span><span class="label">packages in the executable dependency closure</span></div>
+        <div class="metric"><span class="value">1,046</span><span class="label">Go files in cmd/goobers</span></div>
+        <div class="metric"><span class="value">3,520</span><span class="label">recorded top-level cmd/goobers tests</span></div>
+        <div class="metric"><span class="value">1,520 s</span><span class="label">race timing weight for cmd/goobers</span></div>
+        <div class="metric"><span class="value">5.10</span><span class="label">MiB raw embedded payloads</span></div>
+      </div>
+      <div class="callout">
+        CI already divides <code>cmd/goobers</code> into three test pieces because
+        package-level sharding cannot split it. This is evidence for source ownership
+        changes before deployment changes.
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>Recommended architecture</h2>
+      <p class="section-intro">
+        The public executable owns compatibility and recovery. Optional execution and
+        content are selected from one verified immutable component set.
+      </p>
+      <div class="architecture" aria-label="Recommended component architecture">
+        <div class="arch-column">
+          <div class="node core"><strong>Operator</strong><br>Same CLI, flags, output, and exit codes</div>
+          <div class="node core"><strong>Existing gaggle</strong><br><code>command: [goobers, ...]</code></div>
+          <div class="node core"><strong>Agent</strong><br><code>GOOBERS_BIN</code> still points to the front</div>
+        </div>
+        <div class="arrow" aria-hidden="true">-&gt;</div>
+        <div class="arch-column">
+          <div class="node core"><strong>goobers / goobers.exe</strong><br>Registry, public dispatch, compatibility, service, update, recovery</div>
+          <div class="node core"><strong>Embedded core</strong><br>Validator fallback, schemas, minimal templates, daemon, engine, journal</div>
+          <div class="node component"><strong>Verified component set</strong><br>Private stage helper, Portal, toolkit, extension assets</div>
+          <div class="node component"><strong>Retained previous set</strong><br>Atomic rollback, never per-file replacement</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="options">
+      <h2>Options and tradeoffs</h2>
+      <p class="section-intro">
+        Filter the options by the outcome they support. Scores are weighted out of five
+        across CI, hot patching, compatibility, platform support, operations, security,
+        and rollback.
+      </p>
+      <div class="filters" role="group" aria-label="Filter architecture options">
+        <button class="filter active" data-filter="all">All</button>
+        <button class="filter" data-filter="ci">CI</button>
+        <button class="filter" data-filter="patch">Hot patch</button>
+        <button class="filter" data-filter="portable">Cross-platform</button>
+        <button class="filter" data-filter="rejected">Rejected</button>
+      </div>
+      <div class="options">
+        <article class="card" data-tags="ci portable">
+          <span class="score">4.20</span>
+          <h3>A. Source/test decomposition</h3>
+          <p>Keep one deployable binary; move handlers and tests into coherent importable packages.</p>
+          <div class="proscons">
+            <div class="pros"><strong>Pros</strong><br>Fastest CI value, lowest risk, one-file operations.</div>
+            <div class="cons"><strong>Cons</strong><br>No independent runtime patch.</div>
+          </div>
+          <div class="tags"><span class="tag">prerequisite</span><span class="tag">one binary</span><span class="tag">CI</span></div>
+        </article>
+
+        <article class="card" data-tags="ci patch portable">
+          <span class="score">4.00</span>
+          <h3>B. Private helper executables</h3>
+          <p>The front delegates selected commands to exact signed sibling helpers.</p>
+          <div class="proscons">
+            <div class="pros"><strong>Pros</strong><br>Portable, crash isolation, patchable command families.</div>
+            <div class="cons"><strong>Cons</strong><br>Duplicate dependencies and multi-file release.</div>
+          </div>
+          <div class="tags"><span class="tag">stage commands</span><span class="tag">IPC</span><span class="tag">portable</span></div>
+        </article>
+
+        <article class="card" data-tags="patch portable">
+          <span class="score">3.45</span>
+          <h3>C. Long-lived local RPC</h3>
+          <p>Resident workers communicate through named pipes, sockets, HTTP, or gRPC.</p>
+          <div class="proscons">
+            <div class="pros"><strong>Pros</strong><br>Fine-grained restart, rich protocols, low per-call startup.</div>
+            <div class="cons"><strong>Cons</strong><br>Lifecycle, auth, draining, and mixed-version complexity.</div>
+          </div>
+          <div class="tags"><span class="tag">defer</span><span class="tag">read service</span></div>
+        </article>
+
+        <article class="card" data-tags="ci patch portable">
+          <span class="score">4.25</span>
+          <h3>D. Signed component sets</h3>
+          <p>Immutable helpers and assets share one manifest, activation pointer, and rollback unit.</p>
+          <div class="proscons">
+            <div class="pros"><strong>Pros</strong><br>No mixed versions, strong rollback, one provenance identity.</div>
+            <div class="cons"><strong>Cons</strong><br>Verifier and release signing become security-critical.</div>
+          </div>
+          <div class="tags"><span class="tag">foundation</span><span class="tag">atomic</span><span class="tag">signed</span></div>
+        </article>
+
+        <article class="card" data-tags="rejected">
+          <span class="score">2.45</span>
+          <h3>E. Go plugins / loaded libraries</h3>
+          <p>Load code into the core process and share Go values directly.</p>
+          <div class="proscons">
+            <div class="pros"><strong>Pros</strong><br>Low call overhead and direct types.</div>
+            <div class="cons"><strong>Cons</strong><br>No Windows, weak race support, exact build identity, core crash risk.</div>
+          </div>
+          <div class="tags"><span class="tag">rejected</span><span class="tag">not Windows</span></div>
+        </article>
+
+        <article class="card recommended" data-tags="ci patch portable">
+          <span class="score">4.70</span>
+          <h3>F. Phased hybrid</h3>
+          <p>Decompose source first, add component sets, then externalize only clean high-value boundaries.</p>
+          <div class="proscons">
+            <div class="pros"><strong>Pros</strong><br>CI benefit first, reversible rollout, stable recovery core.</div>
+            <div class="cons"><strong>Cons</strong><br>Dual-mode tests and deliberate binary duplication.</div>
+          </div>
+          <div class="tags"><span class="tag">recommended</span><span class="tag">phased</span><span class="tag">compatible</span></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="resources">
+      <h2>Resources: embed by risk class</h2>
+      <p class="section-intro">
+        There should not be one global embed-versus-sidecar policy. The right answer
+        depends on recovery value, release coupling, patch frequency, and integrity risk.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Payload</th><th>Raw size</th><th>Policy</th><th>Reason</th></tr></thead>
+          <tbody>
+            <tr><td>Schemas and field purposes</td><td>0.372 MiB</td><td>Embed</td><td>Core validation contract; required offline and during recovery.</td></tr>
+            <tr><td>Init and scaffold templates</td><td>0.021 MiB</td><td>Embed</td><td>Tiny, release-coupled, and needed from a bare binary.</td></tr>
+            <tr><td>Portal</td><td>2.324 MiB</td><td>Verified override + embedded fallback</td><td>Existing fs.FS seam; useful UI patch isolation.</td></tr>
+            <tr><td>Agent toolkit</td><td>1.484 MiB</td><td>Verified override + fallback</td><td>Content-heavy and versioned, but exact release matching matters.</td></tr>
+            <tr><td>Portal extension</td><td>0.795 MiB</td><td>Verified override + fallback</td><td>Narrow builder seam and independently useful content updates.</td></tr>
+            <tr><td>Tutorial and service files</td><td>0.035 MiB</td><td>Embed</td><td>Small and important to first-run/service repair.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        Loose files next to <code>goobers.exe</code> are not the recommendation.
+        External resources belong in immutable, hash-verified, signed sets selected by
+        one atomic pointer.
+      </div>
+    </section>
+
+    <section id="migration">
+      <h2>Migration sequence</h2>
+      <p class="section-intro">
+        Each phase is independently useful and has a rollback point. Runtime complexity
+        is introduced only after the source boundary is proven.
+      </p>
+      <div class="timeline">
+        <div class="phase"><div><h3>Freeze contracts and measurements</h3><p>Inventory command outputs, flags, result files, environment, and current CI costs.</p></div></div>
+        <div class="phase"><div><h3>Decompose source and tests</h3><p>Extract command families from package main while still linking one executable.</p></div></div>
+        <div class="phase"><div><h3>Build component-set foundation</h3><p>Signed manifest, safe paths, immutable staging, atomic activation, health, retention, rollback.</p></div></div>
+        <div class="phase"><div><h3>Trial external Portal</h3><p>Use the existing fs.FS seam and retain an embedded compatible fallback.</p></div></div>
+        <div class="phase"><div><h3>Extract deterministic stage helper</h3><p>Delegate a small command family through the existing argv/env/result-file contract.</p></div></div>
+        <div class="phase"><div><h3>Expand only with evidence</h3><p>Other stage families and content packs next; long-lived workers only for measured need.</p></div></div>
+      </div>
+    </section>
+
+    <section id="guardrails">
+      <h2>Guardrails</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Risk</th><th>Required control</th></tr></thead>
+          <tbody>
+            <tr><td>Mixed versions</td><td>One immutable component set and one atomic active pointer.</td></tr>
+            <tr><td>Helper preloading</td><td>No PATH/current-directory search; exact verified product-managed path.</td></tr>
+            <tr><td>Tampered files</td><td>Authenticated manifest plus digest verification and safe-open rules.</td></tr>
+            <tr><td>Silent old behavior</td><td>Fallback eligibility is command metadata; mutating helpers fail explicitly on mismatch.</td></tr>
+            <tr><td>Partial update</td><td>Stage full set, verify, smoke-test, activate, health-check, then retire old set.</td></tr>
+            <tr><td>CLI drift</td><td>Dual-mode golden tests for exit code, stdio, JSON, result files, journal effects, cancellation.</td></tr>
+            <tr><td>Gaggle breakage</td><td>Run unchanged shipped workflows against both in-process and delegated topology.</td></tr>
+            <tr><td>Recovery loss</td><td>Core retains validator fallback, service/update/diagnostics, minimal templates, and embedded assets.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell">
+      Standalone sidecar for the Goobers componentization decision package.
+      No external scripts, fonts, analytics, or network resources are used.
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const buttons = [...document.querySelectorAll(".filter")];
+      const cards = [...document.querySelectorAll(".card[data-tags]")];
+      for (const button of buttons) {
+        button.addEventListener("click", () => {
+          const filter = button.dataset.filter;
+          for (const candidate of buttons) {
+            candidate.classList.toggle("active", candidate === button);
+          }
+          for (const card of cards) {
+            const tags = card.dataset.tags.split(/\s+/);
+            card.classList.toggle("hidden", filter !== "all" && !tags.includes(filter));
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

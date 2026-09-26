@@ -352,9 +352,10 @@
     <h1>Smaller validation boundaries. Safe hot patches. One stable CLI.</h1>
     <p class="lede">
       The current Goobers executable is a 103 MiB statically linked product with a
-      highly concentrated command package. The recommended path is not DLLs or Go
-      plugins: decompose source and tests first, then add signed component sets and
-      private helper processes behind the unchanged <code>goobers</code> entry point.
+      highly concentrated command package. The concrete recommendation is to turn
+      built-ins into layered, independently testable Go libraries now, while defining
+      contracts that permit selected libraries to become signed external components
+      later without changing the <code>goobers</code> entry point.
     </p>
     <div class="hero-links">
       <a href="goobers-componentization-analysis.md">Full recommendation</a>
@@ -362,11 +363,11 @@
       <a href="goobers-componentization-evidence.md">Measured evidence</a>
     </div>
     <div class="decision">
-      <strong>Decision:</strong> phased hybrid. Keep validation fallback, daemon,
-      engine, journal, update, and recovery in the core. Trial component activation
-      with Portal assets, then extract deterministic workflow-stage commands to a
-      private one-shot helper. Existing gaggles continue to invoke
-      <code>goobers &lt;command&gt;</code>.
+      <strong>Decision:</strong> library first, external-capable by contract.
+      Make <code>cmd/goobers</code> a thin composition root; give command families
+      explicit dependencies, schemas, descriptors, and package-local tests; continue
+      shipping one executable initially. Add external process hosting only where
+      independent patchability or fault isolation proves worth its cost.
     </div>
   </header>
 
@@ -374,7 +375,7 @@
     <div class="shell">
       <a href="#evidence">Evidence</a>
       <a href="#architecture">Architecture</a>
-      <a href="#options">Options</a>
+      <a href="#recommendation">Recommendation</a>
       <a href="#resources">Resources</a>
       <a href="#migration">Migration</a>
       <a href="#guardrails">Guardrails</a>
@@ -399,15 +400,18 @@
       <div class="callout">
         CI already divides <code>cmd/goobers</code> into three test pieces because
         package-level sharding cannot split it. This is evidence for source ownership
-        changes before deployment changes.
+        changes before deployment changes. Unit tests exist today, but package-main
+        coupling, globals, broad construction, and shared fixtures make them harder to
+        isolate and schedule than normal Go package tests.
       </div>
     </section>
 
     <section id="architecture">
       <h2>Recommended architecture</h2>
       <p class="section-intro">
-        The public executable owns compatibility and recovery. Optional execution and
-        content are selected from one verified immutable component set.
+        The public executable owns compatibility and recovery. Built-ins are linked
+        libraries behind one capability registry; a future host boundary can move a
+        selected library out of process without changing the public contract.
       </p>
       <div class="architecture" aria-label="Recommended component architecture">
         <div class="arch-column">
@@ -417,93 +421,56 @@
         </div>
         <div class="arrow" aria-hidden="true">-&gt;</div>
         <div class="arch-column">
-          <div class="node core"><strong>goobers / goobers.exe</strong><br>Registry, public dispatch, compatibility, service, update, recovery</div>
-          <div class="node core"><strong>Embedded core</strong><br>Validator fallback, schemas, minimal templates, daemon, engine, journal</div>
-          <div class="node component"><strong>Verified component set</strong><br>Private stage helper, Portal, toolkit, extension assets</div>
-          <div class="node component"><strong>Retained previous set</strong><br>Atomic rollback, never per-file replacement</div>
+          <div class="node core"><strong>goobers / goobers.exe</strong><br>Thin composition root, registry, public dispatch, compatibility, update, recovery</div>
+          <div class="node core"><strong>Layered linked libraries</strong><br>Core, stage, provider, read/operations, and authoring capabilities</div>
+          <div class="node component"><strong>Versioned capability contract</strong><br>Descriptors, explicit dependencies, schemas, outputs, and conformance fixtures</div>
+          <div class="node component"><strong>Future external host</strong><br>Signed one-shot processes only for proven patch or isolation value</div>
         </div>
       </div>
     </section>
 
-    <section id="options">
-      <h2>Options and tradeoffs</h2>
+    <section id="recommendation">
+      <h2>One recommendation, staged deliberately</h2>
       <p class="section-intro">
-        Filter the options by the outcome they support. Scores are weighted out of five
-        across CI, hot patching, compatibility, platform support, operations, security,
-        and rollback.
+        Static linking is not the problem. Go already compiles and caches packages
+        independently. The immediate problem is that hundreds of command implementations
+        and tests share one package boundary.
       </p>
-      <div class="filters" role="group" aria-label="Filter architecture options">
-        <button class="filter active" data-filter="all">All</button>
-        <button class="filter" data-filter="ci">CI</button>
-        <button class="filter" data-filter="patch">Hot patch</button>
-        <button class="filter" data-filter="portable">Cross-platform</button>
-        <button class="filter" data-filter="rejected">Rejected</button>
-      </div>
       <div class="options">
-        <article class="card" data-tags="ci portable">
-          <span class="score">4.20</span>
-          <h3>A. Source/test decomposition</h3>
-          <p>Keep one deployable binary; move handlers and tests into coherent importable packages.</p>
+        <article class="card recommended">
+          <h3>1. Layer built-ins as libraries</h3>
+          <p>Move command families, tests, fixtures, schemas, and descriptors out of package main. Inject providers, journals, clocks, filesystems, and process effects explicitly.</p>
           <div class="proscons">
-            <div class="pros"><strong>Pros</strong><br>Fastest CI value, lowest risk, one-file operations.</div>
-            <div class="cons"><strong>Cons</strong><br>No independent runtime patch.</div>
+            <div class="pros"><strong>Gain</strong><br>Focused local unit tests, package-level CI scheduling, clearer dependency direction.</div>
+            <div class="cons"><strong>Cost</strong><br>Large source and test migration; boundaries must be enforced.</div>
           </div>
-          <div class="tags"><span class="tag">prerequisite</span><span class="tag">one binary</span><span class="tag">CI</span></div>
         </article>
 
-        <article class="card" data-tags="ci patch portable">
-          <span class="score">4.00</span>
-          <h3>B. Private helper executables</h3>
-          <p>The front delegates selected commands to exact signed sibling helpers.</p>
+        <article class="card recommended">
+          <h3>2. Keep one executable initially</h3>
+          <p>The thin composition root wires libraries into the stable CLI. CI builds the complete executable for registry, schema, composition, and end-to-end gates.</p>
           <div class="proscons">
-            <div class="pros"><strong>Pros</strong><br>Portable, crash isolation, patchable command families.</div>
-            <div class="cons"><strong>Cons</strong><br>Duplicate dependencies and multi-file release.</div>
+            <div class="pros"><strong>Gain</strong><br>Current installation, signing, update, rollback, and cross-platform simplicity.</div>
+            <div class="cons"><strong>Cost</strong><br>A production patch still replaces the whole executable.</div>
           </div>
-          <div class="tags"><span class="tag">stage commands</span><span class="tag">IPC</span><span class="tag">portable</span></div>
         </article>
 
-        <article class="card" data-tags="patch portable">
-          <span class="score">3.45</span>
-          <h3>C. Long-lived local RPC</h3>
-          <p>Resident workers communicate through named pipes, sockets, HTTP, or gRPC.</p>
+        <article class="card recommended">
+          <h3>3. Design for an external host</h3>
+          <p>Resolve commands through versioned capability contracts. Prove one extracted library through linked and test-only subprocess hosts before shipping a split runtime.</p>
           <div class="proscons">
-            <div class="pros"><strong>Pros</strong><br>Fine-grained restart, rich protocols, low per-call startup.</div>
-            <div class="cons"><strong>Cons</strong><br>Lifecycle, auth, draining, and mixed-version complexity.</div>
+            <div class="pros"><strong>Gain</strong><br>A real route to independently patchable, process-isolated capabilities.</div>
+            <div class="cons"><strong>Cost</strong><br>Serialization, conformance, signing, diagnostics, and rollback when activated.</div>
           </div>
-          <div class="tags"><span class="tag">defer</span><span class="tag">read service</span></div>
         </article>
 
-        <article class="card" data-tags="ci patch portable">
-          <span class="score">4.25</span>
-          <h3>D. Signed component sets</h3>
-          <p>Immutable helpers and assets share one manifest, activation pointer, and rollback unit.</p>
+        <article class="card">
+          <h3>Explicit exclusions</h3>
+          <p>No native Go plugins, reflective DI container, loose adjacent files, PATH discovery, per-file hot replacement, or general long-lived RPC platform.</p>
           <div class="proscons">
-            <div class="pros"><strong>Pros</strong><br>No mixed versions, strong rollback, one provenance identity.</div>
-            <div class="cons"><strong>Cons</strong><br>Verifier and release signing become security-critical.</div>
+            <div class="pros"><strong>Why</strong><br>Preserves Windows support and avoids accidental loader and lifecycle complexity.</div>
+            <div class="cons"><strong>Tradeoff</strong><br>Third-party in-process extensibility is not a goal of this architecture.</div>
           </div>
-          <div class="tags"><span class="tag">foundation</span><span class="tag">atomic</span><span class="tag">signed</span></div>
-        </article>
-
-        <article class="card" data-tags="rejected">
-          <span class="score">2.45</span>
-          <h3>E. Go plugins / loaded libraries</h3>
-          <p>Load code into the core process and share Go values directly.</p>
-          <div class="proscons">
-            <div class="pros"><strong>Pros</strong><br>Low call overhead and direct types.</div>
-            <div class="cons"><strong>Cons</strong><br>No Windows, weak race support, exact build identity, core crash risk.</div>
-          </div>
-          <div class="tags"><span class="tag">rejected</span><span class="tag">not Windows</span></div>
-        </article>
-
-        <article class="card recommended" data-tags="ci patch portable">
-          <span class="score">4.70</span>
-          <h3>F. Phased hybrid</h3>
-          <p>Decompose source first, add component sets, then externalize only clean high-value boundaries.</p>
-          <div class="proscons">
-            <div class="pros"><strong>Pros</strong><br>CI benefit first, reversible rollout, stable recovery core.</div>
-            <div class="cons"><strong>Cons</strong><br>Dual-mode tests and deliberate binary duplication.</div>
-          </div>
-          <div class="tags"><span class="tag">recommended</span><span class="tag">phased</span><span class="tag">compatible</span></div>
         </article>
       </div>
     </section>
@@ -512,7 +479,8 @@
       <h2>Resources: embed by risk class</h2>
       <p class="section-intro">
         There should not be one global embed-versus-sidecar policy. The right answer
-        depends on recovery value, release coupling, patch frequency, and integrity risk.
+        depends on recovery value, release coupling, demonstrated patch frequency, and
+        integrity risk.
       </p>
       <div class="table-wrap">
         <table>
@@ -520,7 +488,7 @@
           <tbody>
             <tr><td>Schemas and field purposes</td><td>0.372 MiB</td><td>Embed</td><td>Core validation contract; required offline and during recovery.</td></tr>
             <tr><td>Init and scaffold templates</td><td>0.021 MiB</td><td>Embed</td><td>Tiny, release-coupled, and needed from a bare binary.</td></tr>
-            <tr><td>Portal</td><td>2.324 MiB</td><td>Verified override + embedded fallback</td><td>Existing fs.FS seam; useful UI patch isolation.</td></tr>
+            <tr><td>Portal</td><td>2.324 MiB</td><td>Embed now; optional verified override later</td><td>Externalization is justified by independent UI patchability, not size. Defer until patch demand and component activation exist.</td></tr>
             <tr><td>Agent toolkit</td><td>1.484 MiB</td><td>Verified override + fallback</td><td>Content-heavy and versioned, but exact release matching matters.</td></tr>
             <tr><td>Portal extension</td><td>0.795 MiB</td><td>Verified override + fallback</td><td>Narrow builder seam and independently useful content updates.</td></tr>
             <tr><td>Tutorial and service files</td><td>0.035 MiB</td><td>Embed</td><td>Small and important to first-run/service repair.</td></tr>
@@ -543,10 +511,10 @@
       <div class="timeline">
         <div class="phase"><div><h3>Freeze contracts and measurements</h3><p>Inventory command outputs, flags, result files, environment, and current CI costs.</p></div></div>
         <div class="phase"><div><h3>Decompose source and tests</h3><p>Extract command families from package main while still linking one executable.</p></div></div>
-        <div class="phase"><div><h3>Build component-set foundation</h3><p>Signed manifest, safe paths, immutable staging, atomic activation, health, retention, rollback.</p></div></div>
-        <div class="phase"><div><h3>Trial external Portal</h3><p>Use the existing fs.FS seam and retain an embedded compatible fallback.</p></div></div>
-        <div class="phase"><div><h3>Extract deterministic stage helper</h3><p>Delegate a small command family through the existing argv/env/result-file contract.</p></div></div>
-        <div class="phase"><div><h3>Expand only with evidence</h3><p>Other stage families and content packs next; long-lived workers only for measured need.</p></div></div>
+        <div class="phase"><div><h3>Define capability contracts</h3><p>Separate descriptors from implementations and prove linked plus test-only subprocess hosts.</p></div></div>
+        <div class="phase"><div><h3>Build component-set foundation</h3><p>Only when enabling the first external executable: signed manifest, safe paths, atomic activation, retention, rollback.</p></div></div>
+        <div class="phase"><div><h3>Extract one deterministic stage helper</h3><p>Delegate a narrow command family through the existing argv/env/result-file contract.</p></div></div>
+        <div class="phase"><div><h3>Expand only with evidence</h3><p>Other stage families first; Portal and content packs only for demonstrated independent patch value.</p></div></div>
       </div>
     </section>
 
@@ -577,23 +545,5 @@
     </div>
   </footer>
 
-  <script>
-    (() => {
-      const buttons = [...document.querySelectorAll(".filter")];
-      const cards = [...document.querySelectorAll(".card[data-tags]")];
-      for (const button of buttons) {
-        button.addEventListener("click", () => {
-          const filter = button.dataset.filter;
-          for (const candidate of buttons) {
-            candidate.classList.toggle("active", candidate === button);
-          }
-          for (const card of cards) {
-            const tags = card.dataset.tags.split(/\s+/);
-            card.classList.toggle("hidden", filter !== "all" && !tags.includes(filter));
-          }
-        });
-      }
-    })();
-  </script>
 </body>
 </html>

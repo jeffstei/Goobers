@@ -39,7 +39,7 @@ local product contract is centered on `goobers`.
 | Runner and workflow engine | `internal/runner`, `internal/engine` | Broad dependency closure, durable semantics | Potentially high, but compatibility-critical | **Do not split first** |
 | Deterministic built-in stage commands | many `cmd/goobers` files plus provider/domain packages | Existing argv/env/result-file subprocess contract | High: frequent workflow blockers can be patched | **Best first helper candidate** |
 | Read model and HTTP API | `internal/readmodel`, `readservice`, `httpapi` | Journal/SQLite consistency, auth, live daemon | Medium | Later, only if scale evidence requires |
-| Portal static files | `internal/portalassets`, `portal/` | `fs.FS`, exact API compatibility | High UI patch value; low runtime coupling | **Best first external resource** |
+| Portal static files | `internal/portalassets`, `portal/` | `fs.FS`, exact API compatibility | High UI patch value; low runtime coupling | **Deferred content-pack candidate** |
 | Agent toolkit | root embedded FS plus `internal/agentkit` | Release-matched source and drift manifest | Medium/high content patch value | Good resource-pack candidate |
 | Portal extension | root embedded FS plus `internal/portalextension` | Release/commit-stamped bundle | Medium/high content patch value | Good resource-pack candidate |
 | Onboarding/templates/examples | several small embedded FS values | Offline first-run and deterministic output | Low patch urgency | Keep embedded initially |
@@ -242,7 +242,8 @@ helper whose schema/workflow contract identity differs from the core.
 
 ### Candidate 3: Portal/resource pack
 
-This is the lowest-risk deploy-time experiment:
+This is a low-risk content-pack candidate after the executable capability
+contract and activation mechanism are proven:
 
 - no new public CLI;
 - existing `fs.FS` abstraction;
@@ -250,8 +251,9 @@ This is the lowest-risk deploy-time experiment:
 - easy byte/digest comparison;
 - failure can fall back to embedded assets.
 
-It tests signed manifest, activation, diagnostics, and rollback machinery
-without moving execution semantics.
+Its value is independent UI patching, not executable size reduction. Do not
+prioritize it ahead of the library decomposition or use it as a substitute for
+proving the external executable contract.
 
 ### Candidate 4: read service worker
 

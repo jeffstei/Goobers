@@ -2,13 +2,12 @@
 
 **Status:** draft — decision package; no implementation authorized.
 
-> **Recommendation:** do not replace the single executable with dynamically
-> loaded libraries. First decompose `cmd/goobers` into independently owned and
-> tested command packages while retaining one binary. Then introduce one
-> versioned, signed **component set** mechanism, initially for Portal/content
-> assets and later for a private deterministic-stage helper executable.
-> `goobers` remains the only public entry point and retains validation,
-> startup, update, recovery, and fallback capabilities.
+> **Recommendation:** make Goobers a layered set of explicit, independently
+> testable Go libraries behind a thin `goobers` composition root, while
+> continuing to ship one executable. Define command and capability contracts
+> so the same libraries can later be hosted in signed external component
+> processes when independent patching justifies the additional operational
+> cost. Do not begin with Portal extraction or a general plugin runtime.
 
 Supporting material:
 
@@ -18,37 +17,47 @@ Supporting material:
 
 ## 1. Decision summary
 
-The problem contains three related but independent goals:
+Adopt one concrete architecture:
 
-1. **Faster CI:** smaller source and test ownership boundaries.
-2. **Safer hot patches:** independently replaceable runtime capabilities.
-3. **Less embedding:** release assets that may safely live outside the binary.
+1. `cmd/goobers` becomes a thin composition root and public CLI adapter.
+2. Built-in command families become importable libraries with explicit
+   dependencies, owned schemas/descriptors, and package-local tests.
+3. A common capability contract separates CLI metadata from implementation.
+4. The production release remains one statically linked executable initially.
+5. The contract permits selected libraries to move later into signed,
+   out-of-process capability packs without changing the public CLI or gaggles.
 
-One mechanism does not solve all three.
+This addresses the immediate, measured problem first: test and command
+concentration inside `cmd/goobers`. It also avoids foreclosing the desired
+external-component model.
 
-- Splitting the executable without moving tests out of `cmd/goobers` would not
-  fix the current CI long pole.
-- Moving tests into packages can materially improve CI while still shipping
-  one executable.
-- External files do not materially shrink the 103 MiB binary: all measured
-  embedded payloads are about 5.10 MiB raw, and the Portal changes the linked
-  binary by only 2.06 MiB.
-- Runtime splitting is justified by patch isolation and failure containment,
-  not by executable size.
+The current test shape does make unit testing harder than it needs to be.
+Individual functions can be tested, but many command tests share package
+`main`, package globals, CLI parsing, broad construction, embedded resources,
+and a dependency closure spanning most of the product. That increases fixture
+cost, makes effects harder to replace, and prevents Go's normal package-level
+test scheduling from treating command families independently. The existing
+three-way per-test split for `cmd/goobers` is a workaround for that structural
+boundary.
 
-The recommended destination is therefore a **phased hybrid**, not a universal
-plugin architecture:
+Static linking is not the obstacle. Go compiles and caches packages
+independently before linking the final executable, and the repository already
+persists normal and race-mode build caches. Better package ownership allows
+smaller tests to run independently and in parallel even though CI still links
+one final `goobers` executable for composition and end-to-end validation.
+
+The target is therefore **library first, external-capable by contract**:
 
 ```mermaid
 flowchart LR
     U[Operator, workflow, agent] --> F[goobers / goobers.exe]
-    F --> Core[Embedded core commands and recovery]
-    F --> Verify[Component-set verifier]
-    Verify --> Set[Immutable signed component set]
-    Set --> Stage[Private stage helper]
-    Set --> Portal[Portal assets]
-    Set --> Toolkit[Toolkit and extension assets]
-    Core --> Fallback[Embedded fallback assets and commands]
+    F --> Registry[Command and capability registry]
+    Registry --> Core[Core and recovery libraries]
+    Registry --> Stage[Stage command libraries]
+    Registry --> Read[Read and operations libraries]
+    Registry --> Author[Authoring libraries]
+    Stage -. future host boundary .-> Pack[Signed capability process]
+    Pack --> Contract[Versioned command contract]
 ```
 
 ## 2. Non-negotiable compatibility contract
@@ -113,7 +122,26 @@ without rebuilding unrelated code, but that benefit is diluted when:
 The first architectural action is not “create DLLs.” It is “make command
 families real importable modules with narrow dependencies and contract tests.”
 
-### 3.4 A safe helper seam already exists
+### 3.4 Unit testing is possible today, but unnecessarily expensive
+
+The repository has substantial unit coverage, so the current design does not
+prevent unit testing. The friction is architectural:
+
+- command behavior, CLI adaptation, and construction frequently share package
+  `main`;
+- tests in one command family compile as part of the same package as hundreds
+  of unrelated command files and tests;
+- broad dependency construction makes isolated effects harder to substitute;
+- package globals and embedded resources encourage larger fixtures;
+- package-level CI cannot independently schedule command families;
+- `-run` selects tests after compiling the entire package, so custom test
+  splitting reduces execution time but not the package boundary.
+
+The target libraries should use explicit constructor or function injection for
+providers, journals, clocks, filesystems, process launchers, and other effects.
+Prefer visible compile-time wiring over a reflective runtime DI container.
+
+### 3.5 A safe future helper seam already exists
 
 Deterministic workflow stages already use a subprocess-shaped protocol:
 
@@ -125,10 +153,11 @@ Deterministic workflow stages already use a subprocess-shaped protocol:
 - journal-plane endpoint/token.
 
 The main executable currently receives that invocation and runs the command
-handler in its own process. It can instead classify selected commands and
-forward them to an exact sibling helper without changing the gaggle.
+handler in its own process. Once handlers are real libraries behind a stable
+contract, the composition root can either call the library directly or forward
+the same command to an exact signed helper without changing the gaggle.
 
-### 3.5 Update is currently an atomic binary transaction
+### 3.6 Update is currently an atomic binary transaction
 
 Self-update stages one binary, smoke-checks it, retains the previous binary,
 activates the candidate, observes heartbeats, and rolls back on failure.
@@ -137,197 +166,88 @@ Independent helpers or resources cannot be copied casually beside the binary.
 They must become one versioned component-set transaction or the product can
 enter mixed-version states that are less safe than the current monolith.
 
-## 4. Options
+## 4. Concrete recommendation and tradeoffs
 
-Scores use 1 (poor) through 5 (strong). Weighted total is out of 5.
+### 4.1 Build a layered library architecture now
 
-| Criterion | Weight |
-| --- | ---: |
-| CI and independent validation | 25% |
-| Hot-patch capability | 20% |
-| CLI/gaggle compatibility | 20% |
-| Cross-platform support | 10% |
-| Operational simplicity | 10% |
-| Security/trust posture | 10% |
-| Rollback quality | 5% |
+Create four initial ownership layers:
 
-| Option | CI | Patch | Compat | Platform | Ops | Security | Rollback | Weighted |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| A. One binary, source/test decomposition | 5 | 1 | 5 | 5 | 5 | 5 | 5 | **4.20** |
-| B. Private helper executables | 4 | 4 | 4 | 5 | 3 | 4 | 4 | **4.00** |
-| C. Long-lived local RPC components | 3 | 5 | 3 | 4 | 2 | 3 | 4 | **3.45** |
-| D. Signed versioned component sets | 4 | 5 | 4 | 5 | 3 | 4 | 5 | **4.25** |
-| E. Go plugins/shared-library loading | 3 | 4 | 2 | 1 | 2 | 1 | 2 | **2.45** |
-| F. Phased hybrid: A, then D+B selectively | 5 | 5 | 5 | 5 | 3 | 4 | 5 | **4.70** |
+| Layer | Responsibility |
+| --- | --- |
+| CLI contract | command descriptors, aliases, flags, help, output and exit-code metadata |
+| Core libraries | startup, validation fallback, service, update, recovery, engine, runner, journal |
+| Capability libraries | stage, provider, read/operations, and authoring command families |
+| Composition root | construct dependencies, register capabilities, and dispatch through the public CLI |
 
-The scores are directional, not a substitute for benchmarks. Their purpose is
-to make the tradeoff explicit.
+Each capability library owns its implementation, tests, fixtures, and
+capability-specific schemas or descriptors. Dependencies are passed explicitly.
+Libraries must not import `cmd/goobers` or depend on package-main globals.
 
-### 4.1 Option A: one binary, source/test decomposition
+The release remains one statically linked executable. CI runs:
 
-**Shape**
+1. package-local unit tests for changed libraries;
+2. dependent contract and integration tests;
+3. one composition build and registry/schema parity suite;
+4. focused end-to-end gaggle tests on pull requests;
+5. the broad platform and workflow matrix on scheduled or release runs.
 
-- Keep current release and runtime packaging.
-- Move command handlers and tests from `cmd/goobers` into importable packages.
-- Keep one registry and thin dispatch adapters in package `main`.
-- Add affected-package CI planning and narrower test binaries.
+### 4.2 Preserve an external-component path
 
-**Pros**
+The CLI registry must resolve a command to a capability contract rather than a
+package-main function. The default host calls the linked library. A future host
+may invoke a signed one-shot executable implementing the same contract.
 
-- Highest immediate CI value with the least operational risk.
-- Preserves one-file install, signing, service, container, and update behavior.
-- Improves maintainability even if runtime splitting is never adopted.
-- Makes later helper boundaries mechanical rather than a second rewrite.
-- Retains Go's build-cache and type-safety strengths.
+This is intentionally not a general RPC system. Start with commands whose
+existing contract is already process-shaped: argv, scoped environment, result
+files, typed errors, stdout/stderr, exit status, cancellation, and journal
+plane. Long-lived services remain in-process unless measured evidence supports
+the lifecycle and IPC cost.
 
-**Cons**
+External components, if introduced, are installed only as immutable signed
+sets with atomic activation and rollback. Native Go plugins, loose adjacent
+files, `PATH` discovery, and per-file replacement are excluded.
 
-- Cannot hot-patch a capability independently.
-- A release still replaces the full binary.
-- A core startup/link failure still affects every command.
+### 4.3 Defer Portal externalization
 
-**Decision**
+Portal extraction was proposed for **patchability**, not size reduction. Its
+existing `fs.FS` seam and separately packaged release archive make it a
+reasonable future content-pack candidate, but it does not validate the more
+important executable capability contract and adds packaging/security work
+before the library boundary is proven.
 
-Proceed as prerequisite work for any other option.
+Keep Portal embedded during the library refactor. Reconsider a verified Portal
+override only after:
 
-### 4.2 Option B: private helper executables
+- an actual independent UI patch requirement is demonstrated;
+- component-set signing and rollback already exist for an executable
+  capability; or
+- Portal release cadence materially differs from the core.
 
-**Shape**
+### 4.4 Accepted tradeoffs
 
-`goobers` owns public parsing/dispatch and invokes exact component-set helpers
-for selected commands. Helpers are not placed on `PATH` and are not public CLI
-entry points.
+**Benefits**
 
-**Pros**
+- materially smaller unit-test ownership and faster package-level scheduling;
+- explicit dependencies and easier local fakes;
+- continued one-file installation and current update reliability;
+- a deliberate path to independently patchable capabilities;
+- no public CLI or gaggle migration;
+- no commitment to IPC for components that do not need it.
 
-- Portable across all supported Go platforms.
-- Independent process crash/memory boundary.
-- Helpers can be individually built, tested, signed, staged, and rolled back.
-- Existing stage argv/env/result-file protocol minimizes new translation.
-- Core can preserve exit codes and stream stdout/stderr.
+**Costs**
 
-**Cons**
+- moving hundreds of command tests is substantial work;
+- dependency direction and contract ownership must be enforced;
+- CI still links and smoke-tests the complete executable;
+- independent patching is unavailable until a capability is actually hosted
+  externally;
+- any future external host adds serialization, signing, release, diagnostics,
+  and rollback complexity;
+- some shared Go dependencies will be duplicated across executable components.
 
-- Shared Go dependencies are duplicated across binaries.
-- Aggregate download/container size will usually grow.
-- Signal forwarding, cancellation, stdio, environment, and error behavior need
-  exact conformance tests.
-- Helper discovery and activation create a new supply-chain boundary.
-- Moving a function across a process requires explicit serialization.
-
-**Decision**
-
-Use selectively after Option A. The first candidate is deterministic built-in
-stage commands, not the daemon or workflow engine.
-
-### 4.3 Option C: long-lived local RPC components
-
-**Shape**
-
-The front or supervisor starts resident workers and calls them over a named
-pipe, Unix-domain socket, loopback RPC, or existing HTTP/gRPC substrate.
-
-**Pros**
-
-- Fine-grained independent restart and patching.
-- Avoids per-command process startup.
-- Can isolate memory, crashes, and dependency sets.
-- Supports richer typed protocols than environment/result files.
-
-**Cons**
-
-- Adds authentication, socket/pipe permissions, lifecycle, draining, health,
-  version negotiation, cancellation, and log correlation.
-- Creates new states during service startup and update.
-- Long-lived mixed-version behavior is harder than one-shot helper delegation.
-- Local RPC can become an accidentally public attack surface.
-- More difficult to preserve exact CLI streaming behavior.
-
-**Decision**
-
-Defer. Reconsider only for components that are already long-lived and show
-measured reliability or scale benefit, such as a future read-service worker.
-
-### 4.4 Option D: signed versioned component sets
-
-**Shape**
-
-Helpers and external assets are installed in immutable version directories
-described by a signed/hash-pinned manifest. One atomic pointer selects the
-active compatible set; the prior set is retained.
-
-**Pros**
-
-- Prevents mixed helper/resource versions.
-- Generalizes current binary staging and rollback.
-- Supports both executable and content hot patches.
-- Gives diagnostics one set ID and provenance record.
-- Enables pre-activation verification and smoke checks.
-
-**Cons**
-
-- Requires a manifest schema, signing/provenance policy, secure path handling,
-  retention, garbage collection, and activation state machine.
-- Platform signing becomes multi-file: every helper needs Authenticode or
-  codesigning/notarization treatment.
-- A checksum manifest is not enough unless its provenance is authenticated.
-- More complex than replacing one file.
-
-**Decision**
-
-Adopt as the only deploy-time extension mechanism. Do not introduce separate
-ad hoc search paths for Portal, toolkit, or helpers.
-
-### 4.5 Option E: Go plugins or native dynamically loaded libraries
-
-**Pros**
-
-- In-process calls and shared Go types.
-- Potentially small call overhead.
-- Can defer loading optional code.
-
-**Cons**
-
-- Go plugins do not support Windows.
-- They are poorly supported by the race detector.
-- They require effectively identical toolchain, tags, flags, environment, and
-  common dependency sources.
-- A plugin cannot be unloaded.
-- A plugin crash or memory corruption crashes the core.
-- The standard library warns that IPC is often more suitable.
-- Native-library approaches add cgo/ABI, signing, loader search, and
-  cross-platform complexity to a currently pure-Go release.
-
-**Decision**
-
-Do not pursue.
-
-### 4.6 Option F: phased hybrid
-
-**Shape**
-
-1. Decompose source/tests while retaining one executable.
-2. Add component-set verification/activation with an external Portal trial.
-3. Extract selected stage-command families to a one-shot helper.
-4. Keep core validation, daemon, engine, journal, update, and recovery embedded.
-
-**Pros**
-
-- Captures CI benefit before accepting deployment complexity.
-- Uses one security/update mechanism for every external artifact.
-- Starts with reversible, low-risk resources.
-- Moves the most naturally subprocess-oriented code first.
-- Preserves an embedded recovery path.
-
-**Cons**
-
-- During migration, both in-process and delegated forms need conformance tests.
-- The release remains multi-artifact after helper adoption.
-- Some binary duplication is intentional.
-
-**Decision**
-
-Recommended.
+The trade is intentional: pay source-architecture cost immediately because it
+improves development regardless of deployment topology; pay runtime-component
+cost only for demonstrated patchability or isolation value.
 
 ## 5. Recommended target architecture
 
@@ -337,7 +257,6 @@ The core should retain:
 
 - public CLI parsing, registry, help, and dispatch;
 - version/provenance and component diagnostics;
-- component-set verification and activation;
 - minimal `init`, `validate`, `status`, diagnostics, service, update, and
   rollback paths;
 - schemas and minimal recovery/first-run templates;
@@ -349,9 +268,10 @@ The core should retain:
 Keeping the engine and journal in the core avoids versioning the most sensitive
 durable semantics across a process boundary.
 
-### 5.2 First helper: deterministic stage commands
+### 5.2 First external candidate: deterministic stage commands
 
-The helper should initially own command families that:
+If and when external hosting is justified, the first helper should own command
+families that:
 
 - are invoked by workflows as `goobers <command>`;
 - already have provider-stage manifests or stable result-file contracts;
@@ -371,17 +291,18 @@ The front executable:
 
 The gaggle sees no difference.
 
-### 5.3 First resource override: Portal
+### 5.3 Portal is a deferred patchability option
 
-Portal is the best mechanism trial because:
+Portal is not an extraction target for size reduction. It remains a credible
+future patchability option because:
 
 - the server already consumes `fs.FS`;
 - `--dev-assets` proves directory-backed loading;
 - release already builds a separate checksummed Portal archive;
-- a content mismatch is easy to detect;
 - the executable can fall back to embedded assets.
 
-The production behavior should be:
+Do not prioritize it ahead of the layered library work or the executable
+capability contract. If later externalized, production behavior should be:
 
 ```text
 valid compatible active Portal -> serve it
@@ -540,26 +461,25 @@ conformance fixture.
 **Exit:** meaningful changes avoid compiling/testing unrelated command
 families; shipped workflows remain byte/behavior compatible.
 
-### Phase 2: component-set foundation
+### Phase 2: capability contract and host seam
+
+- Separate command descriptors from implementation functions.
+- Define a versioned invocation and conformance contract.
+- Add the normal linked-library host and a test-only subprocess host.
+- Keep production dispatch linked.
+
+**Exit:** one extracted command library passes the same fixture through both
+hosts without changing CLI or gaggle behavior.
+
+### Phase 3: component-set foundation
 
 - Define manifest and compatibility schemas.
 - Implement safe staging, verification, atomic activation, retention, and
   diagnostics.
 - Integrate the transaction with self-update/supervision.
-- Do not load executable helpers yet.
 
 **Exit:** crash/restart and malicious-filesystem tests prove no partial active
 set and reliable rollback.
-
-### Phase 3: external Portal trial
-
-- Package Portal in the component set.
-- Prefer compatible verified Portal assets.
-- Retain embedded fallback.
-- Measure support and patch workflow.
-
-**Exit:** Portal can be upgraded and rolled back independently without CLI,
-daemon API, offline, or recovery regressions.
 
 ### Phase 4: deterministic stage helper
 
@@ -576,7 +496,8 @@ rollback are atomic; CI shows measured improvement.
 Candidate expansion order:
 
 1. other deterministic stage families;
-2. agent toolkit and Portal extension assets;
+2. Portal, agent toolkit, and extension assets when independent patch demand
+   is demonstrated;
 3. optional authoring helper with embedded validation fallback;
 4. long-lived read worker only if measured need exists.
 
@@ -587,7 +508,8 @@ Engine/runner/journal extraction is not an assumed destination.
 ### Pros
 
 - Preserves the product's strongest operational property: one stable command.
-- Delivers CI improvement before deployment complexity.
+- Delivers CI and local-test improvement before deployment complexity.
+- Makes dependencies explicit and lets command packages own focused fixtures.
 - Enables narrowly scoped hot patches for the commands most likely to block a
   running gaggle.
 - Uses process isolation instead of an unsupported/fragile in-process ABI.
@@ -598,7 +520,11 @@ Engine/runner/journal extraction is not an assumed destination.
 
 ### Cons
 
-- Multi-binary releases and component manifests increase release engineering.
+- Moving command implementations and tests out of package `main` is a
+  substantial migration.
+- CI still builds the whole executable for composition and end-to-end gates.
+- Multi-binary releases and component manifests increase release engineering
+  if external hosting is adopted.
 - Aggregate installation size can grow because Go dependencies are duplicated.
 - Signing and notarization must cover every executable.
 - The component-set verifier becomes security-critical.
@@ -640,10 +566,13 @@ reasons.
 
 ## 12. Decision gates before implementation
 
-Implementation should not begin until owners decide:
+The layered library refactor can begin after command contracts and baseline
+tests are captured. External component implementation should not begin until
+owners decide:
 
 1. What authenticated provenance mechanism signs component manifests?
-2. Is an embedded full Portal retained, or a smaller recovery Portal?
+2. Which first executable capability has enough patch value to justify an
+   external host?
 3. Which commands are explicitly recovery-critical and never delegation-only?
 4. Is hot patch distribution tied only to full releases, or can a core version
    authorize later component-set revisions?
@@ -651,19 +580,21 @@ Implementation should not begin until owners decide:
 6. Where is the component root for portable installs, supervised instances,
    Windows services, and containers?
 7. What disk-retention policy keeps previous sets without unbounded growth?
-8. Which first stage-command family has enough operational patch value and a
-   narrow enough dependency closure to justify extraction?
+8. What measured condition would justify Portal externalization?
 
 ## 13. Final recommendation
 
-Adopt the phased hybrid, with this order:
+Adopt the layered-library-first architecture, with this order:
 
-1. **Decompose source and tests first.**
-2. **Create one signed, atomic component-set mechanism.**
-3. **Trial it with Portal assets and embedded fallback.**
-4. **Extract deterministic stage commands into a private one-shot helper.**
-5. **Expand only where measurements justify a runtime boundary.**
+1. **Turn built-ins into explicit, independently tested Go libraries.**
+2. **Make `cmd/goobers` a thin composition root and stable CLI adapter.**
+3. **Define capability contracts that support linked and external hosts.**
+4. **Prove one command through both hosts before shipping runtime splitting.**
+5. **Add signed atomic component sets when enabling the first external
+   executable.**
+6. **Externalize Portal or other content only for demonstrated patch value.**
 
 This path directly addresses the observed `cmd/goobers` CI bottleneck and
-creates a safe hot-patch route without changing the public CLI or asking
-existing gaggles to understand the deployment topology.
+improves local unit testing immediately. It also creates a safe hot-patch route
+without committing the entire product to IPC or asking existing gaggles to
+understand the deployment topology.

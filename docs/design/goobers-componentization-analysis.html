@@ -354,8 +354,8 @@
       The current Goobers executable is a 103 MiB statically linked product with a
       highly concentrated command package. The concrete recommendation is to turn
       built-ins into layered, independently testable Go libraries now, while defining
-      contracts that permit selected libraries to become signed external components
-      later without changing the <code>goobers</code> entry point.
+      host-neutral package contracts. External process hosting remains an optional
+      later decision, not a prerequisite for the refactor.
     </p>
     <div class="hero-links">
       <a href="goobers-componentization-analysis.md">Full recommendation</a>
@@ -366,7 +366,7 @@
       <strong>Decision:</strong> library first, external-capable by contract.
       Make <code>cmd/goobers</code> a thin composition root; give command families
       explicit dependencies, schemas, descriptors, and package-local tests; continue
-      shipping one executable initially. Add external process hosting only where
+      shipping one executable. Add an external wire contract and process host only where
       independent patchability or fault isolation proves worth its cost.
     </div>
   </header>
@@ -404,6 +404,12 @@
         coupling, globals, broad construction, and shared fixtures make them harder to
         isolate and schedule than normal Go package tests.
       </div>
+      <div class="callout">
+        <strong>Why this is worth doing:</strong> moving files and tests is mechanical
+        and can be automated. The durable payoff is better coverage, reliability,
+        diagnosability, and comprehensibility, plus faster local and CI validation.
+        Those benefits remain even if Goobers always ships as one executable.
+      </div>
     </section>
 
     <section id="architecture">
@@ -423,8 +429,8 @@
         <div class="arch-column">
           <div class="node core"><strong>goobers / goobers.exe</strong><br>Thin composition root, registry, public dispatch, compatibility, update, recovery</div>
           <div class="node core"><strong>Layered linked libraries</strong><br>Core, stage, provider, read/operations, and authoring capabilities</div>
-          <div class="node component"><strong>Versioned capability contract</strong><br>Descriptors, explicit dependencies, schemas, outputs, and conformance fixtures</div>
-          <div class="node component"><strong>Future external host</strong><br>Signed one-shot processes only for proven patch or isolation value</div>
+          <div class="node component"><strong>Linked capability contract</strong><br>Descriptors, explicit dependencies, schemas, outputs, and conformance fixtures</div>
+          <div class="node component"><strong>Optional future external host</strong><br>A separate wire contract and signed process only for proven patch or isolation value</div>
         </div>
       </div>
     </section>
@@ -456,11 +462,11 @@
         </article>
 
         <article class="card recommended">
-          <h3>3. Design for an external host</h3>
-          <p>Resolve commands through versioned capability contracts. Prove one extracted library through linked and test-only subprocess hosts before shipping a split runtime.</p>
+          <h3>3. Preserve the option to externalize</h3>
+          <p>Keep library APIs free of package-main state and transport assumptions. Add a wire protocol only after a named capability demonstrates patch or isolation value.</p>
           <div class="proscons">
             <div class="pros"><strong>Gain</strong><br>A real route to independently patchable, process-isolated capabilities.</div>
-            <div class="cons"><strong>Cost</strong><br>Serialization, conformance, signing, diagnostics, and rollback when activated.</div>
+            <div class="cons"><strong>Cost</strong><br>None of the IPC cost is paid unless the optional host is approved.</div>
           </div>
         </article>
 
@@ -511,9 +517,9 @@
       <div class="timeline">
         <div class="phase"><div><h3>Freeze contracts and measurements</h3><p>Inventory command outputs, flags, result files, environment, and current CI costs.</p></div></div>
         <div class="phase"><div><h3>Decompose source and tests</h3><p>Extract command families from package main while still linking one executable.</p></div></div>
-        <div class="phase"><div><h3>Define capability contracts</h3><p>Separate descriptors from implementations and prove linked plus test-only subprocess hosts.</p></div></div>
-        <div class="phase"><div><h3>Build component-set foundation</h3><p>Only when enabling the first external executable: signed manifest, safe paths, atomic activation, retention, rollback.</p></div></div>
-        <div class="phase"><div><h3>Extract one deterministic stage helper</h3><p>Delegate a narrow command family through the existing argv/env/result-file contract.</p></div></div>
+        <div class="phase"><div><h3>Define the linked capability contract</h3><p>Separate descriptors from implementations without introducing an IPC protocol.</p></div></div>
+        <div class="phase"><div><h3>Optional: prove an external host</h3><p>Only for a capability with demonstrated patch or isolation value; stop if the benefit is insufficient.</p></div></div>
+        <div class="phase"><div><h3>Optional: build component-set delivery</h3><p>Signed manifest, safe paths, atomic activation, retention, and rollback for the proven helper.</p></div></div>
         <div class="phase"><div><h3>Expand only with evidence</h3><p>Other stage families first; Portal and content packs only for demonstrated independent patch value.</p></div></div>
       </div>
     </section>

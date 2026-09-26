@@ -1,6 +1,13 @@
 # Goobers componentization evidence
 
-**Status:** draft — supporting evidence for
+> **Status:** draft — supporting evidence
+> **Spec:** Reproducible componentization measurements and observations
+> **Authors:** Jeff Steinbok, GitHub Copilot
+> **Owner:** @jeffstei
+> **Area:** architecture, CI performance, binary composition
+> **Updated:** 2026-09-25
+
+Supports
 [`goobers-componentization-analysis.md`](goobers-componentization-analysis.md).
 
 This document records the measurements behind the componentization analysis.

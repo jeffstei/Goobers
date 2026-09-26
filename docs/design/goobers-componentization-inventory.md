@@ -1,6 +1,13 @@
 # Goobers componentization inventory
 
-**Status:** draft — supporting inventory for
+> **Status:** draft — supporting inventory
+> **Spec:** Component, compatibility, and resource-boundary inventory
+> **Authors:** Jeff Steinbok, GitHub Copilot
+> **Owner:** @jeffstei
+> **Area:** architecture, packaging, runtime boundaries
+> **Updated:** 2026-09-25
+
+Supports
 [`goobers-componentization-analysis.md`](goobers-componentization-analysis.md).
 
 This inventory separates source packages, runtime responsibilities, deployable

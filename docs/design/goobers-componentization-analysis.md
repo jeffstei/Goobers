@@ -1,13 +1,20 @@
 # Goobers componentization analysis
 
-**Status:** draft — decision package; no implementation authorized.
+> **Status:** draft — incubator recommendation; implementation is activated
+> only through individually approved issues.
+> **Spec:** Architecture decision and staged implementation recommendation
+> **Authors:** Jeff Steinbok, GitHub Copilot
+> **Owner:** @jeffstei
+> **Area:** architecture, command composition, CI, release engineering
+> **Updated:** 2026-09-25
 
 > **Recommendation:** make Goobers a layered set of explicit, independently
 > testable Go libraries behind a thin `goobers` composition root, while
-> continuing to ship one executable. Define command and capability contracts
-> so the same libraries can later be hosted in signed external component
-> processes when independent patching justifies the additional operational
-> cost. Do not begin with Portal extraction or a general plugin runtime.
+> continuing to ship one executable. Keep the package APIs host-neutral enough
+> that selected libraries could later become signed external components, but
+> treat the external host and wire contract as an optional follow-on decision,
+> not a prerequisite for the refactor. Do not begin with Portal extraction or
+> a general plugin runtime.
 
 Supporting material:
 
@@ -22,14 +29,35 @@ Adopt one concrete architecture:
 1. `cmd/goobers` becomes a thin composition root and public CLI adapter.
 2. Built-in command families become importable libraries with explicit
    dependencies, owned schemas/descriptors, and package-local tests.
-3. A common capability contract separates CLI metadata from implementation.
+3. A common linked capability contract separates CLI metadata from
+   implementation without requiring an IPC protocol.
 4. The production release remains one statically linked executable initially.
-5. The contract permits selected libraries to move later into signed,
-   out-of-process capability packs without changing the public CLI or gaggles.
+5. If independent patching later proves valuable, selected libraries may gain
+   an external host adapter and versioned wire contract without changing the
+   public CLI or gaggles.
 
 This addresses the immediate, measured problem first: test and command
 concentration inside `cmd/goobers`. It also avoids foreclosing the desired
 external-component model.
+
+The primary value is not moving files or tests. That work is mechanical and
+can be heavily automated. The value is creating boundaries that make behavior:
+
+- easier to understand because ownership and dependencies are explicit;
+- easier to test deeply with narrow deterministic fixtures;
+- easier to debug because failures identify a capability rather than a giant
+  package-main surface;
+- more reliable because contracts and side effects can be checked in
+  isolation;
+- safer to change because package-local tests and dependency direction reduce
+  unintended coupling;
+- faster to validate locally and in CI because independent packages can run
+  and cache separately.
+
+Given automated refactoring and validation, this is worthwhile even if the
+final deployable remains one executable. Improved CI speed is a useful outcome,
+but improved coverage, reliability, diagnosability, and comprehensibility are
+the stronger long-term return.
 
 The current test shape does make unit testing harder than it needs to be.
 Individual functions can be tested, but many command tests share package
@@ -145,7 +173,7 @@ Prefer visible compile-time wiring over a reflective runtime DI container.
 
 Deterministic workflow stages already use a subprocess-shaped protocol:
 
-- `goobers` argv;
+- `goobers` command-line argument vector (`argv`);
 - scoped environment and credentials;
 - config-generation pinning;
 - result files and typed error files;
@@ -191,11 +219,16 @@ The release remains one statically linked executable. CI runs:
 4. focused end-to-end gaggle tests on pull requests;
 5. the broad platform and workflow matrix on scheduled or release runs.
 
-### 4.2 Preserve an external-component path
+### 4.2 Preserve, but do not require, an external-component path
 
 The CLI registry must resolve a command to a capability contract rather than a
-package-main function. The default host calls the linked library. A future host
-may invoke a signed one-shot executable implementing the same contract.
+package-main function. The default host calls the linked library. That linked
+contract is part of the recommendation.
+
+A wire contract and external process host are optional. Implement them only
+when a named capability has demonstrated independent patch or fault-isolation
+value. A well-factored library is a successful end state even if that decision
+is never made.
 
 This is intentionally not a general RPC system. Start with commands whose
 existing contract is already process-shaped: argv, scoped environment, result
@@ -227,6 +260,10 @@ override only after:
 
 **Benefits**
 
+- stronger coverage through focused deterministic fixtures;
+- higher reliability from isolated contracts and side-effect boundaries;
+- easier debugging because failures map to an owning capability;
+- better comprehensibility from explicit dependencies and smaller packages;
 - materially smaller unit-test ownership and faster package-level scheduling;
 - explicit dependencies and easier local fakes;
 - continued one-file installation and current update reliability;
@@ -236,7 +273,8 @@ override only after:
 
 **Costs**
 
-- moving hundreds of command tests is substantial work;
+- automated movement still requires careful contract review and compatibility
+  validation;
 - dependency direction and contract ownership must be enforced;
 - CI still links and smoke-tests the complete executable;
 - independent patching is unavailable until a capability is actually hosted
@@ -245,9 +283,11 @@ override only after:
   and rollback complexity;
 - some shared Go dependencies will be duplicated across executable components.
 
-The trade is intentional: pay source-architecture cost immediately because it
-improves development regardless of deployment topology; pay runtime-component
-cost only for demonstrated patchability or isolation value.
+The trade is intentional: automate the mechanical movement, but spend human
+review on boundaries and observable behavior. The library architecture pays
+for itself through coverage, reliability, debugging, comprehension, and
+validation speed regardless of deployment topology. Pay runtime-component cost
+only for demonstrated patchability or isolation value.
 
 ## 5. Recommended target architecture
 
@@ -461,37 +501,37 @@ conformance fixture.
 **Exit:** meaningful changes avoid compiling/testing unrelated command
 families; shipped workflows remain byte/behavior compatible.
 
-### Phase 2: capability contract and host seam
+### Phase 2: linked capability contract
 
 - Separate command descriptors from implementation functions.
-- Define a versioned invocation and conformance contract.
-- Add the normal linked-library host and a test-only subprocess host.
+- Define the linked invocation and conformance contract.
+- Keep package APIs free of package-main state and transport assumptions.
 - Keep production dispatch linked.
 
-**Exit:** one extracted command library passes the same fixture through both
-hosts without changing CLI or gaggle behavior.
+**Exit:** extracted command libraries share a common contract without changing
+CLI or gaggle behavior.
 
-### Phase 3: component-set foundation
+### Optional Phase 3: external-host proof
 
-- Define manifest and compatibility schemas.
+- Select one capability with demonstrated patch or fault-isolation value.
+- Define a versioned wire contract and test-only subprocess host.
+- Run the same conformance fixture through linked and subprocess hosts.
+
+**Exit:** the external host proves value and behavioral parity. If it does not,
+stop with the layered linked architecture.
+
+### Optional Phase 4: production component set
+
+- Define signed manifest and compatibility schemas.
 - Implement safe staging, verification, atomic activation, retention, and
   diagnostics.
 - Integrate the transaction with self-update/supervision.
-
-**Exit:** crash/restart and malicious-filesystem tests prove no partial active
-set and reliable rollback.
-
-### Phase 4: deterministic stage helper
-
-- Build and sign a one-shot helper.
-- Delegate a small non-recovery command family.
-- Run dual-mode and shipped-workflow conformance.
-- Expand only after observed reliability.
+- Ship the proven one-shot helper.
 
 **Exit:** existing gaggles run unchanged; helper failure is isolated; update and
 rollback are atomic; CI shows measured improvement.
 
-### Phase 5: selective expansion
+### Optional Phase 5: selective expansion
 
 Candidate expansion order:
 
@@ -588,11 +628,13 @@ Adopt the layered-library-first architecture, with this order:
 
 1. **Turn built-ins into explicit, independently tested Go libraries.**
 2. **Make `cmd/goobers` a thin composition root and stable CLI adapter.**
-3. **Define capability contracts that support linked and external hosts.**
-4. **Prove one command through both hosts before shipping runtime splitting.**
-5. **Add signed atomic component sets when enabling the first external
+3. **Define a linked capability contract without committing to IPC.**
+4. **Stop here unless a named capability demonstrates independent patch or
+   fault-isolation value.**
+5. **If justified, prove one command through linked and external hosts.**
+6. **Add signed atomic component sets when enabling the first external
    executable.**
-6. **Externalize Portal or other content only for demonstrated patch value.**
+7. **Externalize Portal or other content only for demonstrated patch value.**
 
 This path directly addresses the observed `cmd/goobers` CI bottleneck and
 improves local unit testing immediately. It also creates a safe hot-patch route

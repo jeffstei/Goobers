@@ -15,6 +15,15 @@ artifacts, and embedded resources. Those are different kinds of modularity:
 Goobers already has many Go packages, but its primary local runtime and public
 command surface are linked into one executable.
 
+**Follow-up, 2026-09-28:** this remains the dated 2026-09-25 inventory, not a
+refreshed source survey or an implementation approval. The
+[revised recommendation](goobers-componentization-analysis.md) and frozen
+[docs-churn](../experiments/docs-churn-extraction.md) and
+[contention/PR-status](../experiments/provider-component-extraction.md) reports
+now gate extraction on per-candidate evidence. Ordinary component-specific Go
+APIs suffice; shared contracts are conditional. The process/resource-pack
+designs below remain deferred reference material, not activated work.
+
 ## 1. Current deployable shape
 
 ```mermaid

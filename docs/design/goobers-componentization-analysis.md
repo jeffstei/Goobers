@@ -6,67 +6,54 @@
 > **Authors:** Jeff Steinbok, GitHub Copilot
 > **Owner:** @jeffstei
 > **Area:** architecture, command composition, CI, release engineering
-> **Updated:** 2026-09-25
+> **Updated:** 2026-09-28
 
 > **Recommendation:** make Goobers a layered set of explicit, independently
 > testable Go libraries behind a thin `goobers` composition root, while
-> continuing to ship one executable. Keep the package APIs host-neutral enough
-> that selected libraries could later become signed external components, but
-> treat the external host and wire contract as an optional follow-on decision,
-> not a prerequisite for the refactor. Do not begin with Portal extraction or
-> a general plugin runtime.
+> continuing to ship one executable. Proceed incrementally through measured,
+> individually approved boundaries, not a wholesale component framework.
+> Use explicit component-specific Go APIs; common contracts and external hosting
+> require separate justification. Do not begin with Portal extraction or a
+> general plugin runtime.
 
 Supporting material:
 
 - [component and resource inventory](goobers-componentization-inventory.md)
 - [measurements and reproducible evidence](goobers-componentization-evidence.md)
+- [docs-churn experiment](../experiments/docs-churn-extraction.md)
+- [contention and PR-status experiments](../experiments/provider-component-extraction.md)
 - [standalone HTML sidecar](goobers-componentization-analysis.html)
 
 ## 1. Decision summary
 
-Adopt one concrete architecture:
+Keep the library-first, single-executable direction, with evidence gates:
 
 1. `cmd/goobers` becomes a thin composition root and public CLI adapter.
-2. Built-in command families become importable libraries with explicit
-   dependencies, owned schemas/descriptors, and package-local tests.
-3. A common linked capability contract separates CLI metadata from
-   implementation without requiring an IPC protocol.
-4. The production release remains one statically linked executable initially.
-5. If independent patching later proves valuable, selected libraries may gain
-   an external host adapter and versioned wire contract without changing the
-   public CLI or gaggles.
+2. Extract cohesive behavior used by real consumers into importable libraries
+   with explicit dependencies and package-local tests, not one package per command.
+3. Use ordinary component-specific Go APIs. Extract shared registry metadata or
+   a common linked contract only after repeated shared needs demonstrate its value.
+4. The production release remains one statically linked executable.
+5. Consider an external host and wire contract only through a separate approval
+   for a named independent-patch or fault-isolation need, preserving the CLI and YAML.
 
-This addresses the immediate, measured problem first: test and command
-concentration inside `cmd/goobers`. It also avoids foreclosing the desired
-external-component model.
+Three bounded pilots demonstrate substantially lower focused-test overhead while
+retaining tested command behavior (section 3.7). They validate an extraction
+technique, not completion of broad source decomposition, a universal architecture,
+or a common hosting protocol. Their implementation is experimental, not approved
+production code and not merged into this incubator recommendation or upstream.
 
-The primary value is not moving files or tests. That work is mechanical and
-can be heavily automated. The value is creating boundaries that make behavior:
+Reliability, easier debugging, comprehensibility, maintainability, and CI savings
+remain hypotheses to evaluate. Package count and lines moved are not success
+metrics. API, navigation, and fixture costs can outweigh a smaller test boundary.
+Automation can move code, but it does not establish that a boundary is useful.
 
-- easier to understand because ownership and dependencies are explicit;
-- easier to test deeply with narrow deterministic fixtures;
-- easier to debug because failures identify a capability rather than a giant
-  package-main surface;
-- more reliable because contracts and side effects can be checked in
-  isolation;
-- safer to change because package-local tests and dependency direction reduce
-  unintended coupling;
-- faster to validate locally and in CI because independent packages can run
-  and cache separately.
-
-Given automated refactoring and validation, this is worthwhile even if the
-final deployable remains one executable. Improved CI speed is a useful outcome,
-but improved coverage, reliability, diagnosability, and comprehensibility are
-the stronger long-term return.
-
-The current test shape does make unit testing harder than it needs to be.
-Individual functions can be tested, but many command tests share package
-`main`, package globals, CLI parsing, broad construction, embedded resources,
-and a dependency closure spanning most of the product. That increases fixture
-cost, makes effects harder to replace, and prevents Go's normal package-level
-test scheduling from treating command families independently. The existing
-three-way per-test split for `cmd/goobers` is a workaround for that structural
-boundary.
+Existing unit tests, pure helpers, and narrow provider fakes already work.
+New failure-path assertions could be added without extraction. The observed
+advantage is running focused tests without loading, linking, and initializing
+the entire command test package. Many command tests still share package `main`,
+globals, CLI parsing, broad construction, and embedded resources; the existing
+three-way per-test split remains useful and is not retired by these pilots.
 
 Static linking is not the obstacle. Go compiles and caches packages
 independently before linking the final executable, and the repository already
@@ -74,18 +61,17 @@ persists normal and race-mode build caches. Better package ownership allows
 smaller tests to run independently and in parallel even though CI still links
 one final `goobers` executable for composition and end-to-end validation.
 
-The target is therefore **library first, external-capable by contract**:
+The target is therefore **library first, evidence-gated, one executable**:
 
 ```mermaid
 flowchart LR
     U[Operator, workflow, agent] --> F[goobers / goobers.exe]
-    F --> Registry[Command and capability registry]
-    Registry --> Core[Core and recovery libraries]
-    Registry --> Stage[Stage command libraries]
-    Registry --> Read[Read and operations libraries]
-    Registry --> Author[Authoring libraries]
-    Stage -. future host boundary .-> Pack[Signed capability process]
-    Pack --> Contract[Versioned command contract]
+    F --> CLI[Existing CLI adapters and explicit wiring]
+    CLI --> Core[Core and recovery libraries]
+    CLI --> Selected[Selected cohesive libraries with component-specific APIs]
+    Selected -. repeated shared needs and separate approval .-> Common[Optional common linked contract]
+    Selected -. named patch or isolation need and separate approval .-> Pack[Optional signed external process]
+    Pack --> Contract[Separately designed wire and deployment compatibility]
 ```
 
 ## 2. Non-negotiable compatibility contract
@@ -107,6 +93,11 @@ The analysis treats the following as acceptance criteria, not preferences:
    points do not change.
 9. The update supervisor retains one known-good rollback state.
 
+This source refactor changes neither dispatcher version-skew checks nor
+upgrade/draining behavior, the binary deployment unit, or cloud rolling-upgrade
+guarantees. Independently deployed components would require a separate deployment
+compatibility design; extracting a Go package supplies none of those guarantees.
+
 ## 3. Current-state findings
 
 ### 3.1 The source/test boundary is more monolithic than the package count suggests
@@ -121,9 +112,10 @@ repository packages and contains:
 - 3,520 recorded top-level tests;
 - 1,520 seconds of race-mode timing weight.
 
+These are the dated 2026-09-25 baseline measurements, not a refreshed inventory.
 CI already splits this one Go package into three test pieces because ordinary
-package-level sharding cannot subdivide it. That is strong evidence that source
-ownership must change before adding more runtime artifacts.
+package-level sharding cannot subdivide it. That motivates testing smaller source
+boundaries before adding runtime artifacts; it does not prove broad migration pays.
 
 ### 3.2 The executable is large because of code, not resources
 
@@ -147,8 +139,9 @@ without rebuilding unrelated code, but that benefit is diluted when:
   packages;
 - command metadata, help, and dispatch are tied to the package-main registry.
 
-The first architectural action is not “create DLLs.” It is “make command
-families real importable modules with narrow dependencies and contract tests.”
+The next architectural action is not “create DLLs.” It is to review the measured
+boundaries and select one more representative component with narrow dependencies
+and retained contract tests.
 
 ### 3.4 Unit testing is possible today, but unnecessarily expensive
 
@@ -165,9 +158,10 @@ prevent unit testing. The friction is architectural:
 - `-run` selects tests after compiling the entire package, so custom test
   splitting reduces execution time but not the package boundary.
 
-The target libraries should use explicit constructor or function injection for
-providers, journals, clocks, filesystems, process launchers, and other effects.
-Prefer visible compile-time wiring over a reflective runtime DI container.
+Use explicit constructor or function inputs where they help the selected
+behavior. Reuse existing narrow provider interfaces. Inject clocks or process
+dependencies when useful; real temporary files are acceptable. Do not impose
+blanket filesystem/effects abstractions or a reflective runtime DI container.
 
 ### 3.5 A safe future helper seam already exists
 
@@ -181,9 +175,9 @@ Deterministic workflow stages already use a subprocess-shaped protocol:
 - journal-plane endpoint/token.
 
 The main executable currently receives that invocation and runs the command
-handler in its own process. Once handlers are real libraries behind a stable
-contract, the composition root can either call the library directly or forward
-the same command to an exact signed helper without changing the gaggle.
+handler in its own process. This is prior art for a separately approved host
+adapter, not a requirement that every library adopt a universal invocation
+envelope or transport-neutral API.
 
 ### 3.6 Update is currently an atomic binary transaction
 
@@ -194,36 +188,94 @@ Independent helpers or resources cannot be copied casually beside the binary.
 They must become one versioned component-set transaction or the product can
 enter mixed-version states that are less safe than the current monolith.
 
+### 3.7 Bounded extraction evidence (2026-09-28)
+
+The frozen [docs-churn report](../experiments/docs-churn-extraction.md) and
+[provider-component report](../experiments/provider-component-extraction.md)
+include methodology and limitations; their linked JSON artifacts retain raw
+samples. Only reports are included here, not experiment implementation or
+measurement scripts. Reproduction requires the experiment checkout and its
+recorded baseline, not this documentation-only branch.
+
+| Pilot | Own command baseline | Production dependency packages, baseline -> library | Warm no-selected-tests median, baseline -> library |
+| --- | --- | ---: | ---: |
+| docs-churn | `1b0655b3` | 1,178 -> 84 (92.9% fewer) | 11.388 -> 3.081 s (72.9% lower) |
+| Contention query/ranking | `3a1de891` | 1,179 -> 425 (64.0% fewer) | 13.859 -> 3.303 s (76.2% lower) |
+| PR-status | `3a1de891` | 1,179 -> 425 (64.0% fewer) | 13.859 -> 4.633 s (66.6% lower) |
+
+Overhead uses `go test -count=1 -run '^$'`: it includes Go startup,
+loading/build/linking, test-process startup, and `TestMain`, not whole-suite
+runtime or pure compilation. Each experiment has its own baseline. Complete
+library suites and retained CLI scenarios are different workloads, not identical
+tests to compare as a speedup. Whole-command timings overlap and are basically
+unchanged; the command gains one dependency in the first pilot and two in the
+follow-up. All three complete library suites and targeted CLI tests passed
+`-race` after GCC installation, resolving the first report's tooling blocker.
+
+Docs-churn retained its original eight CLI tests and separately demonstrated
+eight-case executable before/after parity for exit status, stdout/stderr, results,
+and watermark state. Contention and PR-status have in-process consumer/provider
+regression checks, not executable parity. A deliberate docs-churn time-buffer
+multiplication-to-division mutation survived the original eight CLI tests but
+failed the new overlap test. That is a useful assertion, not an exclusive
+capability of packages: the test could also have been added in package `main`.
+
+Core production source grew by 51 lines in the first pilot and 20 in the
+follow-up (the latter excludes small caller import/type-name changes). Additional
+API and navigation boundaries are real costs. Contention is the strongest
+architectural example because backlog selection and implementation-context share
+the behavior; PR-status's architectural value is modest despite its measured
+isolated-test benefit. None requires a common registry or hosting contract.
+
+These are three warm samples per measurement on a shared Windows machine.
+The first baseline was on C: and the experiment on Q:; the follow-up used the
+same Q: drive for both. Private build caches do not control module/OS caches,
+disk, antivirus, or other activity. No full CI critical-path/runner-cost gain,
+production reliability or incident reduction, fleet-wide benefit, platform
+matrix, or independently patchable deployment has been proven. The pilots are
+small; review them, then measure a more-coupled representative component before
+authorizing broader migration.
+
 ## 4. Concrete recommendation and tradeoffs
 
-### 4.1 Build a layered library architecture now
+### 4.1 Evaluate a layered library architecture incrementally
 
-Create four initial ownership layers:
+Use these ownership responsibilities to evaluate boundaries, not as a mandatory
+package taxonomy or blanket migration approval:
 
 | Layer | Responsibility |
 | --- | --- |
 | CLI contract | command descriptors, aliases, flags, help, output and exit-code metadata |
 | Core libraries | startup, validation fallback, service, update, recovery, engine, runner, journal |
-| Capability libraries | stage, provider, read/operations, and authoring command families |
-| Composition root | construct dependencies, register capabilities, and dispatch through the public CLI |
+| Selected behavior libraries | cohesive stage, provider, read/operations, or authoring behavior used by real consumers |
+| Composition root | construct dependencies and dispatch through existing public CLI adapters |
 
-Each capability library owns its implementation, tests, fixtures, and
-capability-specific schemas or descriptors. Dependencies are passed explicitly.
+Each selected library owns its implementation, tests, fixtures, and any
+behavior-specific schemas or descriptors it actually needs. Dependencies are explicit.
 Libraries must not import `cmd/goobers` or depend on package-main globals.
 
-The release remains one statically linked executable. CI runs:
+The release remains one statically linked executable. The proposed CI structure
+to evaluate, not an implemented or measured gain, is:
 
 1. package-local unit tests for changed libraries;
 2. dependent contract and integration tests;
 3. one composition build and registry/schema parity suite;
 4. focused end-to-end gaggle tests on pull requests;
-5. the broad platform and workflow matrix on scheduled or release runs.
+5. the broad platform and workflow matrix wherever currently required, with
+   scheduled/release coverage in addition, not as a substitute for PR gates.
+
+Do not relax required PR gates based on these pilots. Representative edit-test
+measurements and actual CI critical-path and runner-cost evidence are required
+before claiming savings or proposing gate changes. Unrelated tests and the
+whole command still validate composition.
 
 ### 4.2 Preserve, but do not require, an external-component path
 
-The CLI registry must resolve a command to a capability contract rather than a
-package-main function. The default host calls the linked library. That linked
-contract is part of the recommendation.
+The existing CLI registry may continue to resolve package-main adapters that
+call ordinary component-specific Go APIs. A common linked capability contract
+or registry extraction is optional, not a prerequisite to useful libraries.
+Require demonstrated repeated shared needs before introducing either abstraction.
+Explicit package APIs need not be transport-neutral or anticipate a future host.
 
 A wire contract and external process host are optional. Implement them only
 when a named capability has demonstrated independent patch or fault-isolation
@@ -245,8 +297,9 @@ files, `PATH` discovery, and per-file replacement are excluded.
 Portal extraction was proposed for **patchability**, not size reduction. Its
 existing `fs.FS` seam and separately packaged release archive make it a
 reasonable future content-pack candidate, but it does not validate the more
-important executable capability contract and adds packaging/security work
-before the library boundary is proven.
+immediate source-boundary question and adds packaging/security work before a
+library boundary earns its cost. An executable capability contract is itself
+an optional later decision, not a library-extraction milestone.
 
 Keep Portal embedded during the library refactor. Reconsider a verified Portal
 override only after:
@@ -258,18 +311,21 @@ override only after:
 
 ### 4.4 Accepted tradeoffs
 
-**Benefits**
+**Observed benefits and retained properties**
 
-- stronger coverage through focused deterministic fixtures;
-- higher reliability from isolated contracts and side-effect boundaries;
-- easier debugging because failures map to an owning capability;
-- better comprehensibility from explicit dependencies and smaller packages;
-- materially smaller unit-test ownership and faster package-level scheduling;
-- explicit dependencies and easier local fakes;
+- substantially lower focused-test overhead and dependency closure in three pilots;
+- useful new assertions, which could also have been written without extraction;
+- independently runnable tests using explicit inputs and existing narrow fakes;
 - continued one-file installation and current update reliability;
-- a deliberate path to independently patchable capabilities;
 - no public CLI or gaggle migration;
 - no commitment to IPC for components that do not need it.
+
+**Hypotheses, not guaranteed returns**
+
+- better coverage, production reliability, and incident outcomes;
+- easier debugging, comprehension, and long-term maintenance;
+- faster representative edit-test loops and actual CI scheduling/cost savings;
+- useful independent patching, only if a separate host/deployment design pays off.
 
 **Costs**
 
@@ -283,13 +339,16 @@ override only after:
   and rollback complexity;
 - some shared Go dependencies will be duplicated across executable components.
 
-The trade is intentional: automate the mechanical movement, but spend human
-review on boundaries and observable behavior. The library architecture pays
-for itself through coverage, reliability, debugging, comprehension, and
-validation speed regardless of deployment topology. Pay runtime-component cost
-only for demonstrated patchability or isolation value.
+The trade must be evaluated per boundary: automate mechanical movement, but
+review observable behavior and API/navigation/fixture costs. Retain improved
+tests without extraction if the boundary does not earn its complexity. Pay
+runtime-component costs only for separately demonstrated patchability or isolation.
 
 ## 5. Recommended target architecture
+
+Library responsibilities below guide candidate review, not blanket extraction.
+The external-host portions of sections 5-7 are a deferred reference design:
+they activate no implementation and require separate approved issues.
 
 ### 5.1 Core executable responsibilities
 
@@ -341,8 +400,9 @@ future patchability option because:
 - release already builds a separate checksummed Portal archive;
 - the executable can fall back to embedded assets.
 
-Do not prioritize it ahead of the layered library work or the executable
-capability contract. If later externalized, production behavior should be:
+Do not prioritize it ahead of evidence-gated library work. Any executable host
+contract is independently optional. If Portal is later externalized, production
+behavior should be:
 
 ```text
 valid compatible active Portal -> serve it
@@ -354,9 +414,10 @@ invalid active Portal          -> fail closed for that set, report diagnostics,
 “Fallback” means a previously verified set or embedded release-matched assets,
 not arbitrary loose files.
 
-## 6. Internal compatibility protocol
+## 6. Deferred external-host compatibility protocol
 
-Every helper invocation should begin with a private contract that includes:
+Only if external hosting is separately approved, every helper invocation should
+begin with a private contract that includes:
 
 - protocol schema/version;
 - core version and commit;
@@ -386,7 +447,7 @@ Silent fallback for a mutating stage command is dangerous: the operator could
 believe a hot patch is active while old semantics execute. Fallback eligibility
 must be command metadata, not a catch-all behavior.
 
-## 7. Trust and supply-chain model
+## 7. Deferred external-host trust and supply-chain model
 
 ### 7.1 Installation
 
@@ -427,24 +488,26 @@ Activation is set-based:
 
 Never update an individual active file in place.
 
-## 8. CI strategy
+## 8. Proposed CI strategy: evidence required
 
-### 8.1 Source decomposition gate
+### 8.1 Candidate extraction gate
 
-Before any helper ships:
+For each approved library candidate:
 
-- package command handlers by coherent family;
-- keep command metadata in one importable registry;
-- move package-main tests with their handlers;
+- select cohesive behavior shared by real consumers, not a package quota;
+- retain existing CLI metadata/registry wiring unless separate evidence warrants change;
+- move appropriate behavior tests and retain integration/consumer checks;
 - enforce import direction so command packages do not import package `main`;
 - run package-local tests on affected paths;
 - retain whole-registry, generated-doc, and shipped-workflow gates.
 
-Expected benefit: `cmd/goobers` stops being the indivisible test scheduling
-unit. The existing custom per-test shard split becomes transitional rather than
-the permanent architecture.
+Hypothesis: smaller test boundaries improve edit-test loops and scheduling.
+Measure representative edits and actual CI critical-path and runner cost before
+claiming CI savings or relaxing any required PR gate. The three pilots measured
+focused overhead, not full CI. Existing per-test sharding, unrelated tests, and
+whole-command composition checks remain necessary.
 
-### 8.2 Dual-mode conformance
+### 8.2 Deferred external-host dual-mode conformance
 
 Every delegated command must run through the same fixture in two modes:
 
@@ -465,14 +528,15 @@ Compare:
 Existing shipped-workflow tests should execute at least one full matrix against
 the delegated topology without changing YAML.
 
-### 8.3 Change-impact CI
+### 8.3 Proposed change-impact CI
 
-Use Go dependency information and explicit ownership metadata to choose
-additional jobs, but keep mandatory contract gates:
+Evaluate Go dependency information and explicit ownership metadata for choosing
+additional jobs, without changing required PR checks absent evidence and approval.
+Keep mandatory contract gates:
 
 - CLI registry/help/man-page parity;
 - schemas and workflow compatibility;
-- release/update/component-set verification;
+- release/update verification, plus component-set verification only if hosting is adopted;
 - shipped-workflow conformance;
 - platform builds and signing layout;
 - full scheduled/nightly suite.
@@ -484,32 +548,52 @@ cross-component contract.
 
 ### Phase 0: baseline and contract freeze
 
-- Preserve the measurements in the evidence sidecar.
-- Inventory command outputs, result files, aliases, and environment contracts.
+- Preserve dated baseline inventory and frozen experiment reports.
+- Capture outputs, errors, provider behavior, result files, aliases, flags, and
+  environment contracts per selected candidate, not every command upfront.
 - Add no runtime component behavior.
 
-**Exit:** every candidate command has a machine-readable contract and a
-conformance fixture.
+**Exit:** the individually approved candidate has a recorded baseline and
+executable/in-process conformance fixtures with their coverage limits stated.
 
-### Phase 1: source/test decomposition
+### Phase 1: review boundaries and run one representative pilot
 
-- Extract command registry metadata from package `main`.
-- Move stage, read, authoring, and core handlers into importable families.
-- Move tests with ownership.
-- Keep all commands linked into one binary.
+- Review docs-churn, contention, and PR-status boundaries and their measured costs.
+- Explicitly select and approve one medium-complexity, more-coupled representative
+  component; the exact candidate is a team decision, not blanket authorization.
+- Use component-specific APIs, existing narrow provider interfaces, and useful
+  clock/process inputs rather than a universal effects abstraction.
+- Keep existing integration checks and all commands linked into one binary.
+- Record representative edit-test measurements as well as isolated overhead.
 
-**Exit:** meaningful changes avoid compiling/testing unrelated command
-families; shipped workflows remain byte/behavior compatible.
+**Exit: measured stop/go gate per candidate**
 
-### Phase 2: linked capability contract
+- Preserve CLI, output, result/error shapes, provider behavior, and existing
+  integration checks; a smaller package cannot excuse a regression.
+- Provide useful independently runnable tests.
+- Reduce production dependency closure by **at least 50%** and warm
+  `go test -count=1 -run '^$'` overhead by **at least 25%** against that
+  candidate's baseline. These are prototype criteria, not universal product goals.
+- Keep API, navigation, and fixture costs modest enough for team acceptance.
+- Report noise, representative edit-test results, and remaining coupled behavior.
 
-- Separate command descriptors from implementation functions.
-- Define the linked invocation and conformance contract.
-- Keep package APIs free of package-main state and transport assumptions.
-- Keep production dispatch linked.
+Stop or revise a candidate if compatibility, meaningful savings, or cost acceptance
+fails; retaining better tests without extraction is a valid outcome. Passing
+numerical thresholds alone is not production approval. Only individually approved
+issues activate implementation, including adoption of any prototype code.
 
-**Exit:** extracted command libraries share a common contract without changing
-CLI or gaggle behavior.
+### Conditional Phase 2: selective source/test expansion
+
+- Only after the representative pilot gate and team approval, propose additional
+  cohesive boundaries in stage, read, authoring, or core behavior.
+- Apply the same per-candidate contract and cost review; move tests with ownership.
+- Extract registry metadata or a common linked capability contract only if
+  repeated shared needs demonstrate value. Neither is required for useful libraries.
+- Keep production dispatch linked through explicit component-specific APIs.
+
+**Exit:** each approved boundary preserves tested behavior and demonstrates a
+worthwhile edit-test boundary at accepted cost. Broader migration is conditional,
+not a promise to decompose every family. CI claims require actual CI evidence.
 
 ### Optional Phase 3: external-host proof
 
@@ -517,8 +601,9 @@ CLI or gaggle behavior.
 - Define a versioned wire contract and test-only subprocess host.
 - Run the same conformance fixture through linked and subprocess hosts.
 
-**Exit:** the external host proves value and behavioral parity. If it does not,
-stop with the layered linked architecture.
+**Exit:** the separately approved external host proves named patch/isolation
+value and behavioral parity, with a separate deployment compatibility design.
+If it does not, stop with the linked libraries; no shared framework is required.
 
 ### Optional Phase 4: production component set
 
@@ -528,8 +613,10 @@ stop with the layered linked architecture.
 - Integrate the transaction with self-update/supervision.
 - Ship the proven one-shot helper.
 
-**Exit:** existing gaggles run unchanged; helper failure is isolated; update and
-rollback are atomic; CI shows measured improvement.
+**Exit:** existing gaggles run unchanged; named patch/fault-isolation value is
+demonstrated; update and rollback are atomic; deployment compatibility, skew,
+draining, and recovery are validated. CI improvement is a separate measured claim,
+not an assumed consequence of shipping helpers.
 
 ### Optional Phase 5: selective expansion
 
@@ -548,15 +635,17 @@ Engine/runner/journal extraction is not an assumed destination.
 ### Pros
 
 - Preserves the product's strongest operational property: one stable command.
-- Delivers CI and local-test improvement before deployment complexity.
-- Makes dependencies explicit and lets command packages own focused fixtures.
-- Enables narrowly scoped hot patches for the commands most likely to block a
-  running gaggle.
-- Uses process isolation instead of an unsupported/fragile in-process ABI.
+- Demonstrates lower focused-test overhead in three pilots without deployment complexity.
+- Makes selected dependencies explicit and gives behavior libraries focused fixtures.
+- Offers hypotheses of better debugging, comprehension, reliability, and CI
+  outcomes to evaluate, not guaranteed returns.
+- Leaves narrowly scoped hot patches as a separately justified future option.
+- If hosting is approved, favors process isolation over an unsupported in-process ABI.
 - Treats resources according to risk rather than ideology.
 - Reuses existing subprocess, `fs.FS`, release archive, atomic write, health,
   and rollback seams.
-- Supports Windows without a separate architecture.
+- Preserves the cross-platform product contract; the pilots exercised Windows,
+  not the full platform matrix.
 
 ### Cons
 
@@ -606,9 +695,16 @@ reasons.
 
 ## 12. Decision gates before implementation
 
-The layered library refactor can begin after command contracts and baseline
-tests are captured. External component implementation should not begin until
-owners decide:
+This remains a draft incubator recommendation. Only individually approved issues
+activate implementation; publishing reports does not approve or merge prototypes.
+The next team decision is to review the three measured boundaries and explicitly
+select one medium-complexity, more-coupled pilot. Capture its contracts and
+baseline, then apply the section 9 stop/go gate before proposing broad migration.
+
+A common linked contract or registry extraction requires demonstrated repeated
+shared needs and separate approval. External component implementation also
+requires a named patch/fault-isolation need and separate deployment compatibility
+design. It must not begin until owners decide:
 
 1. What authenticated provenance mechanism signs component manifests?
 2. Which first executable capability has enough patch value to justify an
@@ -624,19 +720,22 @@ owners decide:
 
 ## 13. Final recommendation
 
-Adopt the layered-library-first architecture, with this order:
+**Suggested review decision:** approve incremental, evidence-gated library
+extraction, not a wholesale component framework. Three pilots demonstrate
+substantially lower focused-test overhead while retaining tested command behavior.
+Review these boundaries, then evaluate a more representative coupled component.
+Broader reliability, maintainability, and CI benefits remain hypotheses. Common
+hosting contracts and independent deployment require separate justification.
 
-1. **Turn built-ins into explicit, independently tested Go libraries.**
-2. **Make `cmd/goobers` a thin composition root and stable CLI adapter.**
-3. **Define a linked capability contract without committing to IPC.**
-4. **Stop here unless a named capability demonstrates independent patch or
-   fault-isolation value.**
-5. **If justified, prove one command through linked and external hosts.**
-6. **Add signed atomic component sets when enabling the first external
-   executable.**
-7. **Externalize Portal or other content only for demonstrated patch value.**
+Keep one executable and a stable CLI/YAML/output contract. Review the three
+experimental boundaries and approve the exact next candidate through an
+individual issue. Capture that candidate's contracts, run the measured pilot gate,
+and expand only after team acceptance. Package count and lines moved do not
+establish success; useful tests, preserved composition, lower development cost,
+and modest API/fixture/navigation burden do.
 
-This path directly addresses the observed `cmd/goobers` CI bottleneck and
-improves local unit testing immediately. It also creates a safe hot-patch route
-without committing the entire product to IPC or asking existing gaggles to
-understand the deployment topology.
+Ordinary explicit Go APIs are sufficient. A common contract is optional and
+requires repeated shared needs; an external wire/host design separately requires
+named patch or fault-isolation value, signed atomic sets, and deployment
+compatibility validation. Static linking is not the problem, and the source
+refactor changes no deployment, dispatcher-skew, or rolling-upgrade guarantees.

@@ -14,6 +14,16 @@ This document records the measurements behind the componentization analysis.
 It is intentionally separate from the recommendation so later remeasurement
 does not require rewriting the decision narrative.
 
+**Follow-up, 2026-09-28:** the measurements below remain the 2026-09-25 baseline.
+See the frozen [docs-churn experiment](../experiments/docs-churn-extraction.md)
+and [contention/PR-status follow-up](../experiments/provider-component-extraction.md)
+for separately measured focused-test boundaries and their limitations. These
+reports do not establish full-CI savings or production reliability gains, and
+their prototype code is not included in this documentation branch. The
+[revised recommendation](goobers-componentization-analysis.md#37-bounded-extraction-evidence-2026-09-28)
+distinguishes those observations from hypotheses; no baseline values below
+have been silently refreshed.
+
 ## 1. Measurement context
 
 | Item | Value |

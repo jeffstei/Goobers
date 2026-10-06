@@ -18,6 +18,10 @@ type instanceAnnotationFold struct {
 	initialized    bool
 	itemRepos      map[string]recordedItemRepo
 	worktreeStates map[string]string
+	// abandonments holds every operator recovery-abandoned record, the only
+	// events recovery.ExplicitlyAbandoned consults, so the recovery capacity
+	// reading can mark them without re-reading the whole instance log.
+	abandonments []journal.Event
 }
 
 var instanceAnnotationFolds sync.Map // scheduler directory -> *instanceAnnotationFold
@@ -69,6 +73,7 @@ func (f *instanceAnnotationFold) reset(state journal.InstanceLogState) {
 	f.initialized = true
 	f.itemRepos = nil
 	f.worktreeStates = nil
+	f.abandonments = nil
 }
 
 func (f *instanceAnnotationFold) apply(events []journal.Event) {
@@ -78,6 +83,9 @@ func (f *instanceAnnotationFold) apply(events []journal.Event) {
 		}
 		if event.Type != journal.EventRunnerAnnotation {
 			continue
+		}
+		if event.Runner["operation"] == "recovery-abandoned" {
+			f.abandonments = append(f.abandonments, event)
 		}
 		switch event.Runner["annotation"] {
 		case itemRepoAnnotation:
@@ -126,6 +134,15 @@ func (f *instanceAnnotationFold) worktreeState(schedulerDir, runID, worktreeID s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.worktreeStates[runID+"\x00"+worktreeID], nil
+}
+
+func (f *instanceAnnotationFold) recoveryAbandonments(schedulerDir string) ([]journal.Event, error) {
+	if err := f.refresh(schedulerDir); err != nil {
+		return nil, fmt.Errorf("read instance log for recovery abandonments: %w", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]journal.Event(nil), f.abandonments...), nil
 }
 
 func (f *instanceAnnotationFold) itemRepositories(schedulerDir, runID string, itemIDs []string) (map[string]recordedItemRepo, error) {
